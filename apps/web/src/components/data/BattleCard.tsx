@@ -12,7 +12,7 @@ export function BattleCard({ battle, publicView = false }: { battle: Battle; pub
   const detailPath = publicView ? '/arena/' + battle.id : '/creator/battles/' + battle.id
 
   return (
-    <article className="battle-row">
+    <article className="battle-row" data-status={battle.status}>
       <div className="battle-row-status">
         <StatusBadge status={battle.status} />
         <DemoBadge />

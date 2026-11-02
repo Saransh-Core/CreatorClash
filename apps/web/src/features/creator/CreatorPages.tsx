@@ -12,6 +12,7 @@ import {
   Trophy,
 } from 'lucide-react'
 import { useForm, useWatch } from 'react-hook-form'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from 'react-router'
 import { z } from 'zod'
 import { BattleCard } from '../../components/data/BattleCard'
@@ -30,6 +31,8 @@ import { challengeSuggestions, creatorById, creatorCategories, demoActivities, d
 import { useDemoStore } from '../../stores/demoStore'
 import type { Battle, BattlePhase } from '../../types/domain'
 import { getDemoStartTime } from '../../utils/date'
+import { useAuth } from '../auth/useAuth'
+import { createBattle as createRemoteBattle, fetchBattles, fetchCreators, fetchInvitations, respondToInvitation } from '../../services/competitionApi'
 
 export function CreatorOverviewPage() {
   const battles = useDemoStore((state) => state.battles)
@@ -109,6 +112,9 @@ export function CreatorEngagementPage() {
 }
 
 export function CreatorBattlesPage({ filter = 'all' }: { filter?: 'all' | 'invitations' | 'history' }) {
+  const auth = useAuth()
+  const accessToken = auth.session?.access_token
+  const remoteBattles = useQuery({ queryKey: ['api-battles', accessToken], queryFn: () => fetchBattles(accessToken!), enabled: auth.configured && Boolean(accessToken) })
   const battles = useDemoStore((state) => state.battles)
   const [query, setQuery] = useState('')
   const filtered = battles.filter((battle) => {
@@ -126,14 +132,23 @@ export function CreatorBattlesPage({ filter = 'all' }: { filter?: 'all' | 'invit
         description={filter === 'history' ? 'Review completed demo competitions and their illustrative scores.' : 'Plan a challenge, find a creative counterpart, and bring your community along.'}
         action={filter === 'invitations' ? <Link className="button button-primary" to="/creator/battles/create"><Plus size={16} />Create a battle</Link> : <Link className="button button-primary" to="/creator/battles/create"><Plus size={16} />Create battle</Link>}
       />
-      <DemoNotice>Competition records and statuses are local demo data. No invitation is delivered to another account.</DemoNotice>
+      {auth.configured ? <p className="inline-notice">Showing battles returned by the authenticated API. Invitation delivery and later lifecycle actions are not yet implemented.</p> : <DemoNotice>Competition records and statuses are local demo data. No invitation is delivered to another account.</DemoNotice>}
       <div className="subnav-tabs" aria-label="Battle sections">
         <Link aria-current={filter === 'all' ? 'page' : undefined} to="/creator/battles">All battles</Link>
         <Link to="/creator/battles/find">Find opponent</Link>
         <Link aria-current={filter === 'invitations' ? 'page' : undefined} to="/creator/battles/invitations">Invitations</Link>
         <Link aria-current={filter === 'history' ? 'page' : undefined} to="/creator/battles/history">History</Link>
       </div>
-      {filter === 'invitations' ? <InvitationsContent /> : (
+      {filter === 'invitations' ? <InvitationsContent /> : auth.configured ? (
+        <div className="battle-list">
+          {remoteBattles.isPending && <p className="panel-copy">Loading battles…</p>}
+          {remoteBattles.isError && <InlineNotice>{remoteBattles.error.message}</InlineNotice>}
+          {remoteBattles.data?.filter((battle) => (filter !== 'history' || battle.status === 'completed') && (battle.title + battle.category).toLowerCase().includes(query.toLowerCase())).map((battle) => (
+            <article className="battle-card" key={battle.id}><div><span className="eyebrow">{battle.status.replaceAll('_', ' ')} · {battle.category}</span><h3>{battle.title}</h3><p className="panel-copy">{battle.format.replaceAll('-', ' ')} · {battle.duration_minutes} minutes</p></div><Link className="button button-secondary" to={`/creator/battles/${battle.id}`}>View details <ArrowRight size={15} /></Link></article>
+          ))}
+          {!remoteBattles.isPending && !remoteBattles.data?.length && <EmptyState title="No battles yet." description="Create a battle invitation to start the first competition record." action={<Link className="button button-primary" to="/creator/battles/create">Create a battle</Link>} />}
+        </div>
+      ) : (
         <>
           <label className="search-field page-search">
             <Compass aria-hidden="true" size={16} />
@@ -164,10 +179,15 @@ type CreateBattleInput = z.input<typeof createBattleSchema>
 type CreateBattleOutput = z.output<typeof createBattleSchema>
 
 export function CreateBattlePage() {
+  const auth = useAuth()
+  const accessToken = auth.session?.access_token
+  const queryClient = useQueryClient()
+  const remoteCreators = useQuery({ queryKey: ['api-creators', accessToken], queryFn: () => fetchCreators(accessToken!), enabled: auth.configured && Boolean(accessToken) })
   const navigate = useNavigate()
   const createBattle = useDemoStore((state) => state.createBattle)
   const [step, setStep] = useState(1)
   const [success, setSuccess] = useState(false)
+  const [submitError, setSubmitError] = useState('')
   const {
     register,
     handleSubmit,
@@ -195,7 +215,28 @@ export function CreateBattlePage() {
     if (valid) setStep((current) => Math.min(3, current + 1))
   }
   const previousStep = () => setStep((current) => Math.max(1, current - 1))
-  const submit = handleSubmit((values) => {
+  const submit = handleSubmit(async (values) => {
+    if (auth.configured) {
+      if (!accessToken) return
+      try {
+        setSubmitError('')
+        await createRemoteBattle(accessToken, {
+          title: values.title,
+          format: values.format,
+          opponentId: values.opponent,
+          category: values.category,
+          challengeBrief: values.challenge,
+          durationMinutes: values.duration,
+          rules: values.rules,
+        })
+        await queryClient.invalidateQueries({ queryKey: ['api-battles'] })
+        setSuccess(true)
+        window.setTimeout(() => navigate('/creator/battles'), 700)
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : 'The battle could not be created.')
+      }
+      return
+    }
     const battle: Battle = {
       id: 'demo-' + crypto.randomUUID().slice(0, 8),
       title: values.title,
@@ -219,8 +260,8 @@ export function CreateBattlePage() {
 
   return (
     <div className="workspace-page">
-      <PageHeading eyebrow="BATTLE SETUP · LOCAL DEMO" title="Set the stage." description="Build a competition brief. This draft stays in your browser and is not sent to another creator." />
-      <DemoNotice>Creating a battle only changes this browser’s local demo data. No invitation or live event is created.</DemoNotice>
+      <PageHeading eyebrow={auth.configured ? 'BATTLE SETUP · API' : 'BATTLE SETUP · LOCAL DEMO'} title="Set the stage." description={auth.configured ? 'Create a server-validated competition record and invitation.' : 'Build a competition brief. This draft stays in your browser and is not sent to another creator.'} />
+      {auth.configured ? <p className="inline-notice">The API currently supports creator versus creator invitations. Scheduling, match delivery and later lifecycle actions are not connected.</p> : <DemoNotice>Creating a battle only changes this browser’s local demo data. No invitation or live event is created.</DemoNotice>}
       <div className="wizard-layout">
         <ol aria-label="Battle setup steps" className="wizard-steps">
           {['Format & opponent', 'Challenge brief', 'Review'].map((label, index) => (
@@ -241,18 +282,21 @@ export function CreateBattlePage() {
               <label className="field-label">Competition type
                 <select className="text-input" {...register('format')}>
                   <option value="creator-vs-creator">Creator vs Creator</option>
-                  <option value="creator-vs-community">Creator vs Community</option>
-                  <option value="community-vs-community">Community vs Community</option>
+                  {!auth.configured && <><option value="creator-vs-community">Creator vs Community</option><option value="community-vs-community">Community vs Community</option></>}
                 </select>
               </label>
-              <label className="field-label">Demo opponent
+              <label className="field-label">{auth.configured ? 'Creator opponent' : 'Demo opponent'}
                 <select className="text-input" {...register('opponent')}>
-                  <option value="">Choose a sample creator</option>
-                  {demoCreators.filter((creator) => creator.id !== 'mira-vale').map((creator) => (
-                    <option key={creator.id} value={creator.id}>{creator.name} · {creator.category}</option>
-                  ))}
+                  <option value="">{auth.configured ? 'Choose a registered creator' : 'Choose a sample creator'}</option>
+                  {auth.configured ? remoteCreators.data?.filter((creator) => creator.user_id !== auth.session?.user.id).map((creator) => {
+                    const profile = Array.isArray(creator.profiles) ? null : creator.profiles
+                    return <option key={creator.user_id} value={creator.user_id}>{profile?.display_name || creator.handle} · {creator.category}</option>
+                  }) : demoCreators.filter((creator) => creator.id !== 'mira-vale').map((creator) => <option key={creator.id} value={creator.id}>{creator.name} · {creator.category}</option>)}
                 </select>
                 {errors.opponent && <span className="field-error">{errors.opponent.message}</span>}
+                {auth.configured && remoteCreators.isPending && <span className="field-hint">Loading creator profiles…</span>}
+                {auth.configured && remoteCreators.isError && <span className="field-error">{remoteCreators.error.message}</span>}
+                {auth.configured && remoteCreators.data?.length === 0 && <span className="field-hint">No creator profiles are available yet. Sign up in Creator mode to create one.</span>}
               </label>
             </section>
           )}
@@ -286,23 +330,24 @@ export function CreateBattlePage() {
           {step === 3 && (
             <section className="form-step">
               <p className="eyebrow">STEP 03 · REVIEW</p>
-              <h2>Ready for the demo arena.</h2>
-              <div className="review-note"><DemoBadge /><p>When you create this item, it is saved locally and labelled as a demo. No creator is notified and no stream is affected.</p></div>
+              <h2>{auth.configured ? 'Review the invitation.' : 'Ready for the demo arena.'}</h2>
+              <div className="review-note">{auth.configured ? <p>The API validates and stores this invitation. It does not start a live event or notify Twitch.</p> : <><DemoBadge /><p>When you create this item, it is saved locally and labelled as a demo. No creator is notified and no stream is affected.</p></>}</div>
               <div className="review-summary">
                 <span>Title<strong>{values.title || 'Untitled demo'}</strong></span>
-                <span>Opponent<strong>{values.opponent ? creatorById(values.opponent).name : 'No opponent selected'}</strong></span>
+                <span>Opponent<strong>{values.opponent ? (auth.configured ? remoteCreators.data?.find((creator) => creator.user_id === values.opponent)?.handle ?? 'Selected creator' : creatorById(values.opponent).name) : 'No opponent selected'}</strong></span>
                 <span>Format<strong>{values.format?.replaceAll('-', ' ')}</strong></span>
                 <span>Category<strong>{values.category}</strong></span>
                 <span>Challenge<strong>{values.challenge || 'No brief entered'}</strong></span>
                 <span>Duration<strong>{String(values.duration ?? 30)} minutes</strong></span>
-                <span>Lifecycle<strong>Upcoming demo</strong></span>
+                <span>Lifecycle<strong>{auth.configured ? 'Invitation pending' : 'Upcoming demo'}</strong></span>
               </div>
-              {success && <InlineNotice>Demo battle added to your local list.</InlineNotice>}
+              {success && <InlineNotice>{auth.configured ? 'Battle invitation created.' : 'Demo battle added to your local list.'}</InlineNotice>}
+              {submitError && <InlineNotice>{submitError}</InlineNotice>}
             </section>
           )}
           <div className="wizard-controls">
             {step > 1 ? <button className="button button-quiet" onClick={previousStep} type="button">Back</button> : <Link className="button button-quiet" to="/creator/battles">Cancel</Link>}
-            {step < 3 ? <button className="button button-primary" onClick={nextStep} type="button">Continue <ArrowRight size={16} /></button> : <button className="button button-primary" disabled={isSubmitting || success} type="submit"><Plus size={16} />Create demo battle</button>}
+            {step < 3 ? <button className="button button-primary" onClick={nextStep} type="button">Continue <ArrowRight size={16} /></button> : <button className="button button-primary" disabled={isSubmitting || success} type="submit"><Plus size={16} />{auth.configured ? 'Create invitation' : 'Create demo battle'}</button>}
           </div>
         </form>
       </div>
@@ -338,9 +383,44 @@ export function OpponentFinderPage() {
 }
 
 function InvitationsContent() {
+  const auth = useAuth()
+  const accessToken = auth.session?.access_token
+  const queryClient = useQueryClient()
+  const remoteInvitations = useQuery({ queryKey: ['api-invitations', accessToken], queryFn: () => fetchInvitations(accessToken!), enabled: auth.configured && Boolean(accessToken) })
   const invitations = useDemoStore((state) => state.invitations)
   const respond = useDemoStore((state) => state.respondToInvitation)
   const [notice, setNotice] = useState('')
+  if (auth.configured) {
+    const respond = async (id: string, accept: boolean) => {
+      if (!accessToken) return
+      try {
+        await respondToInvitation(accessToken, id, accept)
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['api-invitations'] }),
+          queryClient.invalidateQueries({ queryKey: ['api-battles'] }),
+        ])
+        setNotice(accept ? 'Invitation accepted. Scheduling is not available yet.' : 'Invitation declined.')
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : 'Could not respond to the invitation.')
+      }
+    }
+    return <>
+      {notice && <InlineNotice>{notice}</InlineNotice>}
+      {remoteInvitations.isPending && <p className="panel-copy">Loading invitations…</p>}
+      {remoteInvitations.isError && <InlineNotice>{remoteInvitations.error.message}</InlineNotice>}
+      <div className="invitation-list">
+        {remoteInvitations.data?.map((invitation) => {
+          const battle = Array.isArray(invitation.battles) ? null : invitation.battles
+          return <article className="invitation-row" key={invitation.id}>
+            <span className="api-avatar" aria-hidden="true">CC</span>
+            <div><span className="eyebrow">{invitation.status.toUpperCase()} · API</span><strong>{battle?.title ?? 'Battle invitation'}</strong><small>{battle?.category ?? 'Creator battle'} · expires {formatWhen(invitation.expires_at)}</small></div>
+            {invitation.status === 'pending' ? <div className="invitation-actions"><button className="button button-primary" onClick={() => void respond(invitation.id, true)} type="button">Accept</button><button className="button button-quiet" onClick={() => void respond(invitation.id, false)} type="button">Decline</button></div> : <span className="invitation-state">{invitation.status}</span>}
+          </article>
+        })}
+      </div>
+      {!remoteInvitations.isPending && !remoteInvitations.data?.length && <EmptyState title="No invitations yet." description="Invitations to this account will appear here." />}
+    </>
+  }
   return (
     <>
       {notice && <InlineNotice>{notice}</InlineNotice>}

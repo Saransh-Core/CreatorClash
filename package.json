@@ -3,13 +3,15 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "apps/web"
+    "apps/web",
+    "apps/api"
   ],
   "scripts": {
     "dev": "npm run dev --workspace @creator-clash/web",
-    "build": "npm run build --workspace @creator-clash/web",
-    "lint": "npm run lint --workspace @creator-clash/web",
-    "typecheck": "npm run typecheck --workspace @creator-clash/web",
+    "build": "npm run build --workspace @creator-clash/web && npm run build --workspace @creator-clash/api",
+    "lint": "npm run lint --workspace @creator-clash/web && npm run lint --workspace @creator-clash/api",
+    "typecheck": "npm run typecheck --workspace @creator-clash/web && npm run typecheck --workspace @creator-clash/api",
+    "test": "npm run test --workspace @creator-clash/api",
     "preview": "npm run preview --workspace @creator-clash/web"
   }
 }

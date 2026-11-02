@@ -96,7 +96,7 @@ function ArenaEnvironment() {
     <group ref={arena}>
       <ambientLight intensity={0.65} />
       <pointLight color="#aa8aff" intensity={28} position={[-3, 4, 4]} />
-      <pointLight color="#72bde5" intensity={20} position={[3, 1, -1]} />
+      <pointLight color="#48d6e8" intensity={16} position={[3, 1, -1]} />
       <spotLight angle={0.55} color="#ffffff" intensity={22} position={[0, 7, 2]} penumbra={0.8} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.05, 0]} receiveShadow>
         <circleGeometry args={[4.6, 64]} />
@@ -107,7 +107,7 @@ function ArenaEnvironment() {
         <meshBasicMaterial ref={stageRingMaterial} color="#8562dd" transparent opacity={0.7} />
       </mesh>
       <CompetitorPodium color="#a987ff" position={[-1.55, 0, 0]} scale={0.92} />
-      <CompetitorPodium color="#77b7d9" position={[1.55, 0, 0]} scale={0.92} />
+      <CompetitorPodium color="#48d6e8" position={[1.55, 0, 0]} scale={0.92} />
       <Float speed={0.8} rotationIntensity={0.1} floatIntensity={0.16}>
         <group ref={centerMark} position={[0, 0.02, 0.2]}>
           <mesh>

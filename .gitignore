@@ -62,6 +62,10 @@ lerna-debug.log*
 *.dump
 *.backup
 
+# Supabase CLI local state and linked project metadata
+supabase/.temp/
+supabase/.branches/
+
 # OS and editor files
 .DS_Store
 Thumbs.db

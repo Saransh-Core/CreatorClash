@@ -1,49 +1,32 @@
 # Creator Clash — Implementation Roadmap
 
-**Status:** Phase 0 foundation is complete. A broad frontend-only product preview is implemented; production service work remains unstarted.
+## Implemented foundations
 
-## Completed — Phase 0: Project foundation
+- Existing React, TypeScript and Vite application preserved with separated public, creator and community route areas.
+- Optional Supabase Auth frontend and bearer-token API transport; local demo content remains labelled as demo.
+- Express API modules for creator profiles, battle invitations, matchmaking, challenge generation/voting/approval, game sessions, and wallet reads/spend/redeem operations.
+- Supabase migrations for identity and battle invitations plus competition lifecycle, game, matchmaking, challenge, wallet, championship, reward and notification schema.
+- Dark Samurai tokens applied to the shared application stylesheet; generated original samurai artwork is used in the public hero.
+- Existing optional immersive 3D scenes retained and code-split.
 
-- Root npm workspace and Vite React/TypeScript web application.
-- Strict TypeScript, Tailwind v4, Oxlint, route shell, shared layout components, product tokens, `.gitignore`, and scripts for lint/typecheck/build.
-- Preserve the five planning documents as product/architecture references.
+## Database-backed capabilities (implementation present; requires local database verification)
 
-## Completed — Frontend product preview
+Migration `202611020002_competition_games_wallet.sql` adds authenticated, database-authoritative Quick Quiz and Reaction Rush actions, matchmaking proposals requiring both creators, challenge selection and dual approval, separate wallet ledgers with atomic spend/redeem RPCs and idempotency keys, championship/reward/notification tables, and competition event records. No migration has been applied or tested against PostgreSQL in this workspace. Do not treat these paths as production verified.
 
-- Public landing, arena discovery/detail, creator directory/profile, championship, how-it-works, not-found, and demo account screens.
-- Shared local demo account; creator/community route boundaries and mode switch.
-- Creator overview, battles, battle creation, matchmaking, invitations/history, lifecycle room, curated Challenge Director, mini-games, championship, rewards, analytics, settings/Twitch preparation, and OBS preview.
-- Community overview, creator discovery/follows, local activities/votes, creator support, championship, Support Token wallet, rewards, and settings.
-- Central illustrative data; browser-persisted demo session and interactions; explicit reset.
-- Three locally playable mini-games and preview states for six additional concepts.
-- Procedural lazy-loaded R3F arena/trophy/coin scenes with CSS fallback.
-- Simplified workspace navigation: nine creator destinations and six community destinations, with community profile/preferences under one route.
-- Expanded the creator taxonomy to include coding/technology, fitness, and an open-ended Other category; Challenge Studio offers at least three curated prompts per category and supports editing.
-- Removed local Support Token and Clash Coin balance mutations. Support and cosmetic actions are preview-only until a server-authoritative ledger exists.
-- Added an optional typed API transport boundary and a placeholder-only `apps/web/.env.example`; no API calls or secrets are configured.
+The frontend still uses clearly labelled browser demos for mini-games and sample wallet/competition surfaces; complete live API UI integration is outstanding. Do not infer real scores, Twitch presence, participation rewards, or balances from demo views.
 
-## Next phases — Production capabilities
+## Next work
 
-### Identity and account foundation
+1. Apply migrations and seed data to a disposable local Supabase stack; resolve SQL/runtime and RLS issues.
+2. Add integration tests for authenticated ownership, battle lifecycle, game timing/scoring, challenge approvals, and wallet idempotency.
+3. Wire selected frontend routes to authenticated API queries/mutations with explicit loading, error, and empty states.
+4. Implement Twitch OAuth token exchange and encrypted token storage, then Helix live status and EventSub lifecycle using registered Twitch credentials and documented scopes.
+5. Add operational workflows, observability, moderation, and deployment configuration only after local verification.
 
-Integrate Supabase Auth and API JWT verification, onboarding and profile setup, account recovery, secure session strategy, and authorized Creator/Community modes. Replace the local demo gate and identify data that can be public.
+## External configuration and limits
 
-### Competition and participation services
+Supabase URL and anon key are required for persistent API operations. OpenAI key/model are optional; challenge generation returns a clear unavailable response without the key. Twitch client credentials, callback URL, encryption key management, EventSub callback hosting, and approved scopes are not configured. No service-role, Twitch, or OpenAI secret belongs in a `VITE_` variable. Migrations have not been applied remotely.
 
-Define and implement server-side battle lifecycle, scheduling, invitation delivery, results and review, rules, cancellations, moderation, participation verification, rate limits, and idempotency. The current client state machine is only illustrative.
+## Verification
 
-### Wallet and reward ledger
-
-Formalize eligibility and product policy, then implement transactional Support Token/Clash Coin ledger services, audit trail, authorization, reversals, concurrency controls, reconciliation, and server-confirmed UI updates. Never port local demo balance mutations as authoritative behavior.
-
-### Twitch, EventSub, and AI Challenge Director
-
-Implement server-owned Twitch OAuth and event verification under documented scopes and provider limits. Add validated, moderated, creator-reviewed OpenAI suggestions with cost controls and fallback. No integration is currently connected.
-
-### Operations and production readiness
-
-Add migrations/RLS, deployment configuration, monitoring, rate/abuse controls, backups, data retention, security review, end-to-end tests, accessibility/visual regression, and device/network performance measurements. Validate WebGL failure, repeated scene cleanup, reduced motion, and mobile performance.
-
-## Verification commands
-
-From `apps/web`: `npm run lint`, `npm run typecheck`, and `npm run build`. These validate frontend source and bundle compilation; they do not test production backend behavior or replace browser/device QA.
+Run `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` from the root. Automated API tests do not replace database integration tests; verify SQL against local Supabase before using any persistent feature.

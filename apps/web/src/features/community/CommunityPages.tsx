@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, Award, Check, Heart, Search, Users, Vote, Wallet } from 'lucide-react'
 import { Link } from 'react-router'
 import { BattleCard } from '../../components/data/BattleCard'
@@ -14,6 +15,9 @@ import { Panel } from '../../components/ui/Panel'
 import { StatBlock } from '../../components/ui/StatBlock'
 import { creatorById, creatorCategories, demoActivities, demoCreators, formatCompact, formatWhen } from '../../services/demoData'
 import { useDemoStore } from '../../stores/demoStore'
+import { useAuth } from '../auth/useAuth'
+import { runtimeConfig } from '../../config/runtime'
+import { fetchWalletTransactions, fetchWallets } from '../../services/walletApi'
 import { announceMotionPreferenceChange } from '../../utils/motionPreference'
 
 export function CommunityOverviewPage() {
@@ -219,28 +223,37 @@ export function CommunityChampionshipPage() {
 }
 
 export function CommunityWalletPage() {
-  const balance = useDemoStore((state) => state.supportTokens)
+  const demoBalance = useDemoStore((state) => state.supportTokens)
   const allTransactions = useDemoStore((state) => state.transactions)
-  const transactions = allTransactions.filter((entry) => entry.currency === 'Support Tokens')
+  const auth = useAuth()
+  const token = auth.session?.access_token
+  const liveEnabled = Boolean(runtimeConfig.apiBaseUrl && auth.configured && token)
+  const walletsQuery = useQuery({ queryKey: ['wallets', auth.session?.user.id], queryFn: () => fetchWallets(token!), enabled: liveEnabled })
+  const transactionsQuery = useQuery({ queryKey: ['wallet-transactions', auth.session?.user.id], queryFn: () => fetchWalletTransactions(token!), enabled: liveEnabled })
+  const supportWallet = walletsQuery.data?.find((wallet) => wallet.currency === 'support_token')
+  const balance = liveEnabled ? (walletsQuery.isSuccess ? supportWallet?.available_balance.toLocaleString() ?? '0' : walletsQuery.isPending ? '—' : 'Unavailable') : demoBalance.toLocaleString()
+  const accountTransactions = (transactionsQuery.data ?? []).filter((entry) => entry.wallets && !Array.isArray(entry.wallets) && entry.wallets.currency === 'support_token')
+  const demoTransactions = allTransactions.filter((entry) => entry.currency === 'Support Tokens')
   return (
     <div className="workspace-page">
-      <PageHeading eyebrow="COMMUNITY · WALLET" title="Your Support Token activity." description="A transparent view of demo participation grants and community support." action={<DemoBadge>LOCAL DEMO</DemoBadge>} />
-      <DemoNotice>This balance and ledger are stored in local demo state. They have no real value and do not change any production balance.</DemoNotice>
+      <PageHeading eyebrow="COMMUNITY · WALLET" title="Your Support Token activity." description={liveEnabled ? 'Your account-scoped Support Token ledger.' : 'A transparent view of demo participation grants and community support.'} action={<DemoBadge>{liveEnabled ? 'ACCOUNT LEDGER' : 'LOCAL DEMO'}</DemoBadge>} />
+      {!liveEnabled && <DemoNotice>This balance and ledger are stored in local demo state. They have no real value and do not change any production balance.</DemoNotice>}
+      {liveEnabled && (walletsQuery.isError || transactionsQuery.isError) && <InlineNotice tone="error">The account ledger could not be loaded. No demo balance is shown for this signed-in session.</InlineNotice>}
       <section className="wallet-hero">
         <div className="wallet-orb" aria-hidden="true">S</div>
-        <div><span className="eyebrow">SUPPORT TOKENS</span><strong>{balance.toLocaleString()}</strong><span>community demo balance</span></div>
+        <div><span className="eyebrow">SUPPORT TOKENS</span><strong>{balance}</strong><span>{liveEnabled ? 'account balance' : 'community demo balance'}</span></div>
         <p>Support Tokens belong to community members. Clash Coins are a separate creator currency and are shown in the creator rewards workspace.</p>
       </section>
-      <Panel eyebrow="LOCAL LEDGER" title="Recent activity" action={<DemoBadge>DEMO ENTRIES</DemoBadge>}>
+      <Panel eyebrow={liveEnabled ? 'ACCOUNT LEDGER' : 'LOCAL LEDGER'} title="Recent activity" action={<DemoBadge>{liveEnabled ? 'SERVER DATA' : 'DEMO ENTRIES'}</DemoBadge>}>
         <div className="transaction-table-wrap">
           <table className="transaction-table">
             <thead><tr><th>Activity</th><th>Type</th><th>Date</th><th className="align-right">Amount</th></tr></thead>
-            <tbody>{transactions.map((entry) => <tr key={entry.id}><td><strong>{entry.description}</strong></td><td><span className="transaction-kind">{entry.kind}</span></td><td>{formatWhen(entry.createdAt)}</td><td className={entry.amount < 0 ? 'align-right amount-negative' : 'align-right amount-positive'}>{entry.amount > 0 ? '+' : ''}{entry.amount}</td></tr>)}</tbody>
+            <tbody>{liveEnabled ? accountTransactions.map((entry) => <tr key={entry.id}><td><strong>{entry.reference_type.replaceAll('_', ' ')}</strong></td><td><span className="transaction-kind">{entry.transaction_type.replaceAll('_', ' ')}</span></td><td>{formatWhen(entry.created_at)}</td><td className={entry.amount < 0 ? 'align-right amount-negative' : 'align-right amount-positive'}>{entry.amount > 0 ? '+' : ''}{entry.amount}</td></tr>) : demoTransactions.map((entry) => <tr key={entry.id}><td><strong>{entry.description}</strong></td><td><span className="transaction-kind">{entry.kind}</span></td><td>{formatWhen(entry.createdAt)}</td><td className={entry.amount < 0 ? 'align-right amount-negative' : 'align-right amount-positive'}>{entry.amount > 0 ? '+' : ''}{entry.amount}</td></tr>)}</tbody>
           </table>
-          {!transactions.length && <EmptyState title="No demo activity yet." description="Complete a local participation demo to see an illustrative entry." />}
+          {!(liveEnabled ? accountTransactions.length : demoTransactions.length) && <EmptyState title={liveEnabled ? (transactionsQuery.isPending ? 'Loading ledger…' : 'No account activity yet.') : 'No demo activity yet.'} description={liveEnabled ? 'Verified transactions will appear here after they are recorded by the server.' : 'Complete a local participation demo to see an illustrative entry.'} />}
         </div>
       </Panel>
-      <DemoNotice>Demo transaction entries illustrate a possible ledger presentation. No wallet service is connected.</DemoNotice>
+      {!liveEnabled && <DemoNotice>Demo transaction entries illustrate a possible ledger presentation. No wallet service is connected.</DemoNotice>}
     </div>
   )
 }

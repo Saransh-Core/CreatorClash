@@ -1,62 +1,33 @@
 # Creator Clash — Design System
 
-**Direction:** Premium Dark Editorial × Immersive 3D × Competitive Energy.  
-**Status:** Applied in the frontend foundation; continue validating contrast, hierarchy, and motion in product review.
+**Direction:** Dark Samurai — Premium Competitive Arena.
 
-## Principles
-
-Editorial clarity, asymmetric compositions, generous whitespace, purposeful structure, restrained competitive energy, dimensional objects at focal moments, and meaningful motion. Avoid generic SaaS/esports templates, repetitive card grids, excess glow, and broad gradients. Competition, identity, and actions remain understandable in semantic HTML without WebGL.
-
-## Applied color tokens
+## Foundations
 
 | Token | Value | Use |
 | --- | --- | --- |
-| Canvas | `#0B0A10` | Main background |
-| Surface | `#121019` | Grouped content |
-| Elevated surface | `#191622` | Inputs and raised surfaces |
-| Primary violet | `#9565F5` | Focus, links, active states |
-| Hover violet | `#A982FF` | Highlight and hover |
-| Lavender | `#C6A8FF` | Secondary focal accent |
-| Primary text | `#F5F3FA` | Main copy |
-| Secondary text | `#A6A0B2` | Supporting copy |
-| Border | `#302B3A` | Dividers and outlines |
-| Success | `#38C98B` | Positive status |
-| Warning | `#E9B65C` | Caution/upcoming |
-| Danger | `#EF6262` | Error/destructive status |
+| Background | `#09090F` | Main canvas |
+| Secondary | `#101019` | Navigation and inset sections |
+| Elevated | `#171725` | Panels and controls |
+| Violet | `#9565F5` | Primary actions and active states |
+| Electric purple | `#B18AFF` | Focus and selected accents |
+| Crimson | `#E94B64` | Competition urgency and destructive states |
+| Cyan | `#42C8D9` | Community participation and information |
+| Gold | `#E8B45D` | Rewards and achievement |
+| Main text | `#F5F2FA` | Primary content |
+| Secondary text | `#A7A2B5` | Supporting content |
+| Border | `#302B40` | Dividers and quiet outlines |
 
-Typography uses an Inter/system sans stack and editorial display stack with system fallback. JetBrains Mono/SFMono/Consolas fallback is reserved for timers, IDs, scores, and numerical details. The spacing scale uses 8px increments and fluid page spacing. No externally hosted font is required for the initial render.
+Use violet sparingly for actions and navigation. Crimson, cyan and gold each carry a distinct meaning. Avoid neon fills and decorative gradients on routine surfaces. Use strong type scale, whitespace and thin borders to establish hierarchy. Components share the CSS custom properties in `apps/web/src/styles/index.css`.
 
-## Layout and responsive composition
+## Layout, motion and accessibility
 
-- Public pages use a wide editorial container with asymmetric hero/feature layouts and lightweight section dividers.
-- Creator and Community modes share a responsive workspace shell but have independent route navigation and page content.
-- At compact width, public links move into a native disclosure menu; workspace navigation becomes a keyboard-operable expandable menu.
-- Data rows remain horizontally readable; tables use an overflow container; competitions, profiles, and creator discovery recompose instead of merely shrinking.
-- Reduced-motion preferences disable nonessential animation and WebGL scenes.
+Public, creator and community experiences share the dark token system while retaining separate navigation and page layouts. Workspaces collapse navigation for narrow screens, use fluid page gutters, and keep controls touch-sized. Focus indicators, semantic landmarks, reduced-motion support and readable contrast are required. Motion should clarify transitions and feedback; avoid persistent movement that competes with content.
 
-## Component language
+## Samurai art and immersive scenes
 
-Reusable primitives include buttons, icon buttons, fields, page headings, demo notices, status/demo badges, panels, avatars, stat blocks, empty states, responsive navigation, activity voting, battle rows, transactions, milestone progress, and charts. Interactive controls use semantic HTML and visible focus states. Demo-only behaviors are labelled in page copy and action feedback.
+The original, generated samurai artwork in `apps/web/public/art/samurai-arena.png` is a signature background for the public hero only. A dark overlay preserves text contrast; the art should not be repeated behind cards. Existing optional Three.js / React Three Fiber scenes are code-split and have CSS fallbacks. Keep scenes decorative, low complexity, responsive to reduced motion, and independent from product state. Do not add further 3D dependencies without a specific product need and performance review.
 
-## Motion system
+## Quality checks
 
-| Token | Value | Use |
-| --- | --- | --- |
-| Instant | 100ms | press acknowledgement |
-| Fast | 160ms | hover/focus |
-| Standard | 240ms | menu/tab/control transition |
-| Emphasis | 400ms | composed entrances |
-| Standard easing | `cubic-bezier(0.2, 0.8, 0.2, 1)` | typical transition |
-| Enter easing | `cubic-bezier(0.16, 1, 0.3, 1)` | entrance |
-
-Motion for React is the primary DOM animation library. Motion is currently used for the landing hero entrance; CSS handles restrained control and composition transitions. Extend motion to meaningful state changes only. Native scrolling is preserved; no Lenis/GSAP is installed. Respect `prefers-reduced-motion` globally.
-
-## 3D art direction
-
-Procedural R3F scenes provide an abstract two-sided arena, dimensional trophy, and metallic coin: low-complexity geometry, controlled violet/cool lighting, restrained particles, smoothed composition response, and deliberately layered ambient motion. Paired arena forms counter-rotate and breathe subtly; the center mark and stage ring animate at a slower cadence; the trophy has restrained halo orbits; and the coin floats with small orbital details. Motion stays concentrated on focal objects rather than every element. The hero scene is lazily imported, near-viewport gated, capped in DPR, disabled for reduced motion and compact viewports, and layered over CSS artwork. Canvas is decorative and pointer-transparent. Key data and actions stay in HTML. No external model/image dependency is required.
-
-Next refinements: profile-specific dimensional artwork, battle stage camera/composition, context-loss recovery, low-tier capability detection, geometry/material reuse review, and measured GPU/CPU profiling. Do not add 3D to dense settings, tables, or routine statistics.
-
-## Accessibility and quality review
-
-Semantic landmarks, skip links, visible keyboard focus, explicit input labels, touch-sized actions, and reduced-motion support are foundations. Continue contrast checks for small metadata and test screen reader announcements, keyboard flows, modal behavior, zoom, and narrow screen layouts. Inspect desktop/tablet/mobile pages and every status/empty/error/disabled state.
+Review every route at mobile and desktop widths, keyboard navigation, reduced-motion settings, loading and empty states, and color contrast. Treat the samurai art and 3D scenes as progressive enhancement; core content and controls must remain usable without them.

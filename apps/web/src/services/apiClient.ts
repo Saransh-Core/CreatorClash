@@ -14,6 +14,7 @@ export class ApiError extends Error {
 
 export type ApiRequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown
+  accessToken?: string
 }
 
 /** Typed transport boundary for future server-backed feature services. */
@@ -22,20 +23,24 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     throw new ApiError('The Creator Clash API is not configured.', 503, 'API_NOT_CONFIGURED')
   }
 
-  const { body, headers: requestHeaders, ...requestOptions } = options
+  const { body, accessToken, headers: requestHeaders, ...requestOptions } = options
   const headers = new Headers(requestHeaders)
   headers.set('Accept', 'application/json')
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`)
   if (body !== undefined) headers.set('Content-Type', 'application/json')
   const response = await fetch(new URL(path.replace(/^\//, ''), `${runtimeConfig.apiBaseUrl}/`), {
     ...requestOptions,
-    credentials: 'include',
+    credentials: 'omit',
     headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
 
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null)
-    const error = typeof payload === 'object' && payload !== null ? payload as { message?: unknown; code?: unknown } : null
+    const envelope = typeof payload === 'object' && payload !== null ? payload as { error?: unknown } : null
+    const error = typeof envelope?.error === 'object' && envelope.error !== null
+      ? envelope.error as { message?: unknown; code?: unknown }
+      : null
     throw new ApiError(
       typeof error?.message === 'string' ? error.message : 'The request could not be completed.',
       response.status,

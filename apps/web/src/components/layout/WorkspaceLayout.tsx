@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router'
 import { CreatorClashMark } from '../brand/CreatorClashMark'
 import { DemoBadge } from '../ui/DemoBadge'
 import { useDemoStore } from '../../stores/demoStore'
+import { useAuth } from '../../features/auth/useAuth'
 
 type WorkspaceLayoutProps = { experience: 'creator' | 'community' }
 type NavItem = { label: string; path: string; icon: typeof Radio; end?: boolean }
@@ -41,22 +42,23 @@ export function WorkspaceLayout({ experience }: WorkspaceLayoutProps) {
   const counterpartPath = isCreator ? '/community' : '/creator'
   const counterpartLabel = isCreator ? 'Community mode' : 'Creator mode'
   const session = useDemoStore((state) => state.session)
+  const auth = useAuth()
   const signOut = useDemoStore((state) => state.signOut)
   const resetDemo = useDemoStore((state) => state.resetDemo)
   const switchMode = useDemoStore((state) => state.switchMode)
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
-  const handleSignOut = () => { signOut(); navigate('/login', { replace: true }) }
+  const handleSignOut = () => { void (auth.configured ? auth.signOut() : Promise.resolve(signOut())).finally(() => navigate('/login', { replace: true })) }
   const handleReset = () => { if (window.confirm('Reset this browser’s Creator Clash demo data?')) { resetDemo(); navigate('/login') } }
 
-  return <div className="workspace-frame">
+  return <div className={isCreator ? 'workspace-frame workspace-creator' : 'workspace-frame workspace-community'}>
     <a className="skip-link" href="#workspace-content">Skip to workspace</a>
     <aside aria-label={label + ' navigation'} className={menuOpen ? 'workspace-sidebar menu-open' : 'workspace-sidebar'}>
       <div className="sidebar-brand-row"><Link aria-label="Creator Clash home" className="brand-link" to="/"><CreatorClashMark /></Link><button aria-controls="workspace-navigation" aria-expanded={menuOpen} aria-label={menuOpen ? 'Close navigation' : 'Open navigation'} className="mobile-menu-toggle" onClick={() => setMenuOpen((open) => !open)} type="button"><span /><span /></button></div>
-      <div className="workspace-context"><span className="workspace-context-icon">{isCreator ? <Radio aria-hidden="true" size={17} /> : <Compass aria-hidden="true" size={17} />}</span><span><span className="eyebrow">{eyebrow}</span><span className="workspace-context-label">{label}</span></span><DemoBadge>DEMO</DemoBadge></div>
+      <div className="workspace-context"><span className="workspace-context-icon">{isCreator ? <Radio aria-hidden="true" size={17} /> : <Compass aria-hidden="true" size={17} />}</span><span><span className="eyebrow">{eyebrow}</span><span className="workspace-context-label">{label}</span></span>{auth.configured ? <span className="environment-tag">ACCOUNT</span> : <DemoBadge>DEMO</DemoBadge>}</div>
       <nav aria-label="Workspace navigation" className="workspace-nav" id="workspace-navigation">{groups.map((group) => <div className="workspace-nav-group" key={group.label}><span className="workspace-nav-heading">{group.label}</span>{group.items.map(({ label: itemLabel, path, icon: Icon, end }) => <NavLink className="workspace-nav-link" end={end ?? true} key={path} onClick={() => setMenuOpen(false)} to={path}><Icon aria-hidden="true" size={16} /><span>{itemLabel}</span><span className="nav-indicator" /></NavLink>)}</div>)}</nav>
-      <div className="sidebar-bottom"><Link className="sidebar-link" to="/"><ArrowLeft aria-hidden="true" size={16} />Public site</Link><Link className="sidebar-link mode-switch-link" onClick={() => switchMode(isCreator ? 'community' : 'creator')} to={counterpartPath}><span>Switch to {counterpartLabel}</span><ArrowRight aria-hidden="true" size={16} /></Link><button className="sidebar-link reset-demo-link" onClick={handleReset} type="button"><span>Reset demo data</span><Shield aria-hidden="true" size={15} /></button></div>
+      <div className="sidebar-bottom"><Link className="sidebar-link" to="/"><ArrowLeft aria-hidden="true" size={16} />Public site</Link><Link className="sidebar-link mode-switch-link" onClick={() => { if (!auth.configured) switchMode(isCreator ? 'community' : 'creator') }} to={counterpartPath}><span>Switch to {counterpartLabel}</span><ArrowRight aria-hidden="true" size={16} /></Link>{!auth.configured && <button className="sidebar-link reset-demo-link" onClick={handleReset} type="button"><span>Reset demo data</span><Shield aria-hidden="true" size={15} /></button>}</div>
     </aside>
-    <div className="workspace-main"><header className="workspace-topbar"><span className="topbar-label">{label}</span><div className="topbar-actions"><span className="environment-tag"><span aria-hidden="true" className="status-dot" />Browser demo · local data</span><span className="topbar-user">{session?.name ?? 'Arena Guest'}</span><button aria-label="Sign out of demo profile" className="icon-button" onClick={handleSignOut} type="button"><LogOut size={16} /></button></div></header><main className="workspace-content" id="workspace-content"><Outlet /></main></div>
+    <div className="workspace-main"><header className="workspace-topbar"><span className="topbar-label">{label}</span><div className="topbar-actions"><span className="environment-tag"><span aria-hidden="true" className="status-dot" />{auth.configured ? 'Supabase account' : 'Browser demo · local data'}</span><span className="topbar-user">{auth.session?.user.user_metadata['display_name'] as string ?? auth.session?.user.email ?? session?.name ?? 'Arena Guest'}</span><button aria-label={auth.configured ? 'Sign out of Creator Clash' : 'Sign out of demo profile'} className="icon-button" onClick={handleSignOut} type="button"><LogOut size={16} /></button></div></header><main className="workspace-content" id="workspace-content"><Outlet /></main></div>
   </div>
 }

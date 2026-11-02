@@ -1,10 +1,10 @@
 # Creator Clash — Information Architecture
 
-**Status:** Implemented frontend route map. Workspace access uses an explicitly labelled local demo profile; production authorization is pending backend integration.
+**Status:** Existing frontend route map is preserved. The same account can enter either Creator or Community workspace. Optional Supabase Auth protects workspace routes when configured; otherwise a clearly labelled browser demo profile is used. Creator/battle pages call the API only when both Supabase Auth and API configuration are present.
 
 ## Application model
 
-One React application serves one public experience plus Creator and Community workspace modes. `AuthGate` protects both workspaces using the same persisted demo session. The mode switch changes workspace context without creating another identity. Legacy `/app/creator` and `/app/community` paths redirect to the current routes.
+One React application serves one public experience plus Creator and Community workspace modes. `AuthGate` uses one Supabase Auth session when configured, or one persisted demo session otherwise. The mode switch changes workspace context without creating another identity. Legacy `/app/creator` and `/app/community` paths redirect to the current routes.
 
 ## Route map
 
@@ -16,15 +16,15 @@ One React application serves one public experience plus Creator and Community wo
 - `/championship` — monthly event introduction
 - `/creators` and `/creators/:id` — directory and creator profile
 - `/how-it-works` — product flow
-- `/login`, `/signup`, `/forgot-password` — frontend-only demo account screens
+- `/login`, `/signup`, `/forgot-password` — Supabase Auth when configured; explicitly labelled local demo fallback otherwise
 
 ### Creator workspace
 
 - `/creator` — overview
-- `/creator/battles` — all competitions
-- `/creator/battles/create` — validated local demo battle wizard
+- `/creator/battles` — API-backed RLS-visible battles when configured; local sample list otherwise
+- `/creator/battles/create` — API-backed creator-versus-creator invitation when configured; validated local demo wizard otherwise
 - `/creator/battles/find` — opponent discovery
-- `/creator/battles/invitations` — local invitation responses
+- `/creator/battles/invitations` — API-backed accept/decline when configured; local invitation responses otherwise
 - `/creator/battles/history` — completed sample competitions
 - `/creator/battles/:battleId` — demo lifecycle and competition detail
 - `/creator/ai-director` — Challenge Studio with category-matched curated suggestions, local voting, and acceptance states
@@ -48,7 +48,7 @@ One React application serves one public experience plus Creator and Community wo
 - `/community/profile` — local profile and display preferences
 - `/community/settings` — legacy redirect to `/community/profile`
 
-Unknown public paths render a not-found screen. Workspace routes require a local demo profile and redirect to login otherwise. The demo gate is not production identity security.
+Unknown public paths render a not-found screen. Workspace routes require a session and redirect to login otherwise. Supabase route gating does not replace server-side authorization; API tokens and database RLS enforce data access.
 
 ## Navigation and hierarchy
 
@@ -56,4 +56,4 @@ Public navigation provides Home, Explore competitions, Creators, Championship, H
 
 ## Future service boundaries
 
-The current UI reads curated data from `services/demoData.ts` and locally persisted state from `stores/demoStore.ts`. `services/apiClient.ts` and `config/runtime.ts` establish an optional typed transport boundary; no endpoint is called until an API base URL and backend exist. Local votes, follows, and activity completion remain demo interactions. Wallet balances and transaction history are illustrative only; support, activity, and cosmetic interactions do not mutate balances. Never treat browser state as verified identity, eligibility, battle results, Twitch activity, or a wallet ledger.
+The UI uses `services/competitionApi.ts` plus `services/apiClient.ts` for creator directory and battle invitation endpoints when configured. Other feature areas still read curated data from `services/demoData.ts` and locally persisted state from `stores/demoStore.ts`. Local votes, follows, mini-games and activity completion remain demo interactions. Wallet balances and transaction history are illustrative only; support, activity, and cosmetic interactions do not mutate balances. Never treat browser state as verified eligibility, battle results, Twitch activity, or a wallet ledger.
