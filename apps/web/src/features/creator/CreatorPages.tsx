@@ -32,7 +32,8 @@ import { useDemoStore } from '../../stores/demoStore'
 import type { Battle, BattlePhase } from '../../types/domain'
 import { getDemoStartTime } from '../../utils/date'
 import { useAuth } from '../auth/useAuth'
-import { createBattle as createRemoteBattle, fetchBattles, fetchCreators, fetchInvitations, respondToInvitation } from '../../services/competitionApi'
+import { createBattle as createRemoteBattle, fetchBattles, fetchCreators, fetchInvitations, respondToInvitation, type ApiBattle } from '../../services/competitionApi'
+import { fetchChallenges, type PersistedChallenge } from '../../services/challengeApi'
 
 export function CreatorOverviewPage() {
   const battles = useDemoStore((state) => state.battles)
@@ -447,10 +448,29 @@ function InvitationsContent() {
 
 export function BattleRoomPage() {
   const { battleId } = useParams()
+  const auth = useAuth()
+  const accessToken = auth.session?.access_token
+  const remoteBattles = useQuery({
+    queryKey: ['api-battles', accessToken],
+    queryFn: () => fetchBattles(accessToken!),
+    enabled: auth.configured && Boolean(accessToken) && Boolean(battleId && /^[0-9a-f-]{36}$/i.test(battleId)),
+  })
+  const remoteBattle = remoteBattles.data?.find((item) => item.id === battleId)
+  const remoteChallenges = useQuery({
+    queryKey: ['challenges', battleId, auth.session?.user.id],
+    queryFn: () => fetchChallenges(accessToken!, battleId!),
+    enabled: Boolean(remoteBattle && accessToken),
+  })
   const battle = useDemoStore((state) => state.battles.find((item) => item.id === battleId))
   const phase = useDemoStore((state) => state.battlePhases[battleId ?? '']) ?? 'waiting'
   const setPhase = useDemoStore((state) => state.setBattlePhase)
   const [notice, setNotice] = useState('')
+
+  if (auth.configured && battleId && /^[0-9a-f-]{36}$/i.test(battleId)) {
+    if (remoteBattles.isPending) return <div className="workspace-page"><PageHeading eyebrow="BATTLE ROOM" title="Loading battle details…" /></div>
+    if (remoteBattles.isError) return <div className="workspace-page"><PageHeading eyebrow="BATTLE ROOM" title="Battle details are unavailable." /><InlineNotice>{remoteBattles.error.message}</InlineNotice></div>
+    if (remoteBattle) return <RemoteBattleRoom battle={remoteBattle} challenges={remoteChallenges.data ?? []} loading={remoteChallenges.isPending} error={remoteChallenges.error} />
+  }
 
   if (!battle) {
     return <div className="workspace-page"><PageHeading eyebrow="BATTLE ROOM" title="This demo battle is unavailable." /><Link className="text-action" to="/creator/battles">Return to battles <ArrowRight size={16} /></Link></div>
@@ -488,6 +508,32 @@ export function BattleRoomPage() {
       </div>
     </div>
   )
+}
+
+function RemoteBattleRoom({ battle, challenges, loading, error }: {
+  battle: ApiBattle
+  challenges: PersistedChallenge[]
+  loading: boolean
+  error: Error | null
+}) {
+  const approved = challenges.find((item) => item.status === 'approved' && item.selected_option_id)
+  const selected = approved?.challenge_options.find((option) => option.id === approved.selected_option_id)
+  return <div className="workspace-page">
+    <PageHeading eyebrow="BATTLE ROOM · SERVER DATA" title={battle.title} description={`${battle.category} · ${battle.format.replaceAll('-', ' ')}`} action={<DemoBadge>{battle.status.replaceAll('_', ' ').toUpperCase()}</DemoBadge>} />
+    <DemoNotice>Battle and approved challenge details are loaded from the authenticated API. Live scoring and stream delivery are not part of this view yet.</DemoNotice>
+    {error && <InlineNotice>{error.message}</InlineNotice>}
+    <section className="battle-room">
+      <div className="battle-room-topline"><span className="status-pill">{battle.status.replaceAll('_', ' ').toUpperCase()}</span><span><Clock3 size={14} /> {battle.duration_minutes} minute format</span></div>
+      <div className="room-challenge">
+        <div><span className="eyebrow">APPROVED CHALLENGE</span>
+          {loading ? <p>Loading saved challenge…</p> : selected ? <><h2>{selected.title}</h2><p>{selected.description}</p><p>{selected.rules}</p></> : <p>{battle.challenge_brief || 'No approved challenge has been selected yet.'}</p>}
+        </div>
+        {selected && <span className="status-pill">{selected.difficulty} · {selected.estimated_duration_minutes} MIN</span>}
+      </div>
+      {selected && <div className="detail-grid"><Panel eyebrow="SCORING" title="How this challenge is judged"><p className="panel-copy">{selected.scoring_method}</p></Panel><Panel eyebrow="VICTORY CONDITIONS" title="What decides the round"><p className="panel-copy">{selected.victory_conditions}</p><p className="panel-copy">Preparation: {selected.equipment_preparation}</p></Panel></div>}
+      <div className="challenge-actions"><Link className="button button-secondary" to="/creator/ai-director">Open Challenge Studio <ArrowRight size={15} /></Link></div>
+    </section>
+  </div>
 }
 
 export function CreatorChampionshipPage() {

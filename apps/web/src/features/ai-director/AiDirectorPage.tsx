@@ -1,181 +1,239 @@
-import { useMemo, useState } from 'react'
-import { ArrowRight, Check, CircleHelp, Sparkles, ThumbsDown, Vote } from 'lucide-react'
-import { DemoBadge } from '../../components/ui/DemoBadge'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowRight, Check, CircleHelp, LoaderCircle, Sparkles, ThumbsDown, Vote } from 'lucide-react'
 import { DemoNotice } from '../../components/ui/DemoNotice'
 import { InlineNotice } from '../../components/ui/InlineNotice'
 import { PageHeading } from '../../components/ui/PageHeading'
 import { Panel } from '../../components/ui/Panel'
-import { challengeSuggestions, creatorCategories } from '../../services/demoData'
-import { useDemoStore } from '../../stores/demoStore'
+import { runtimeConfig } from '../../config/runtime'
+import { useAuth } from '../auth/useAuth'
+import { fetchBattles, type ApiBattle } from '../../services/competitionApi'
+import {
+  approveChallenge,
+  fetchChallenges,
+  fetchVoteTotals,
+  finalizeChallengeVoting,
+  generateChallenges,
+  openChallengeVoting,
+  saveGeneratedChallenges,
+  selectChallengeOption,
+  type PersistedChallenge,
+  voteForChallenge,
+} from '../../services/challengeApi'
+import { creatorCategories } from '../../services/demoData'
 
-type Challenge = {
-  title: string
-  rules: string
-  category: string
-  difficulty: string
+const difficulties = ['Open to all', 'Relaxed', 'Balanced', 'High energy'] as const
+const challengeTypes = ['Creative', 'Skill', 'Knowledge', 'Community'] as const
+const durations = [15, 30, 45, 60] as const
+
+function acceptedBattles(battles: ApiBattle[], userId: string | undefined) {
+  return battles.filter((battle) => battle.battle_participants.some((participant) =>
+    participant.user_id === userId && participant.participant_status === 'accepted'))
 }
 
-type DirectorStage = 'configure' | 'suggestions' | 'voting' | 'acceptance' | 'offered'
-
 export function AiDirectorPage() {
-  const [competitionType, setCompetitionType] = useState('Creator vs Creator')
-  const [category, setCategory] = useState<string>(creatorCategories[0])
-  const [duration, setDuration] = useState(30)
-  const [difficulty, setDifficulty] = useState('Open to all')
-  const [stage, setStage] = useState<DirectorStage>('configure')
-  const [suggestions, setSuggestions] = useState<Challenge[]>([])
-  const [selected, setSelected] = useState<Challenge | null>(null)
-  const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  const [editTitle, setEditTitle] = useState('')
-  const [editRules, setEditRules] = useState('')
-  const [custom, setCustom] = useState('')
+  const auth = useAuth()
+  const queryClient = useQueryClient()
+  const accessToken = auth.session?.access_token
+  const ready = Boolean(runtimeConfig.apiBaseUrl && auth.configured && accessToken)
+  const battlesQuery = useQuery({
+    queryKey: ['challenge-director-battles', auth.session?.user.id],
+    queryFn: () => fetchBattles(accessToken!),
+    enabled: ready,
+  })
+  const availableBattles = useMemo(() => acceptedBattles(battlesQuery.data ?? [], auth.session?.user.id), [battlesQuery.data, auth.session?.user.id])
+  const [battleId, setBattleId] = useState('')
+  const [category, setCategory] = useState<string>(creatorCategories[0] ?? 'Other')
+  const [challengeType, setChallengeType] = useState<string>(challengeTypes[0])
+  const [difficulty, setDifficulty] = useState<(typeof difficulties)[number]>('Balanced')
+  const [durationMinutes, setDurationMinutes] = useState(30)
+  const [brief, setBrief] = useState('')
+  const [customInstructions, setCustomInstructions] = useState('')
+  const [generatedChallengeId, setGeneratedChallengeId] = useState('')
+  const [selectedOptionId, setSelectedOptionId] = useState('')
   const [notice, setNotice] = useState('')
-  const [voteCounts, setVoteCounts] = useState([18, 13, 9, 5, 2])
-  const [accepted, setAccepted] = useState([false, false])
-  const [voteSession, setVoteSession] = useState(0)
-  const castVote = useDemoStore((state) => state.castVote)
-  const voteKey = 'challenge-director:' + category + ':' + voteSession
-  const existingVote = useDemoStore((state) => state.votes[voteKey])
-  const generated = useMemo(() => {
-    return challengeSuggestions.filter((challenge) => challenge.category === category).slice(0, 5)
-  }, [category])
+  const [busy, setBusy] = useState(false)
+  const [votingExpired, setVotingExpired] = useState(false)
 
-  const generate = () => {
-    setSuggestions(generated.map((challenge) => ({ ...challenge, difficulty })))
-    setSelected(null)
-    setAccepted([false, false])
-    setVoteSession((session) => session + 1)
-    setVoteCounts([18, 13, 9, 5, 2])
-    setStage('suggestions')
-    setNotice('Curated demo suggestions are ready. No AI service was called.')
+  const activeBattleId = battleId || availableBattles[0]?.id || ''
+  const selectedBattle = availableBattles.find((battle) => battle.id === activeBattleId)
+  const durationOptions = selectedBattle
+    ? durations.filter((duration) => duration <= selectedBattle.duration_minutes).length
+      ? durations.filter((duration) => duration <= selectedBattle.duration_minutes)
+      : [selectedBattle.duration_minutes]
+    : [...durations]
+  const effectiveDuration = durationOptions.includes(durationMinutes) ? durationMinutes : durationOptions.at(-1) ?? durationMinutes
+  const challengesQuery = useQuery({
+    queryKey: ['challenges', activeBattleId, auth.session?.user.id],
+    queryFn: () => fetchChallenges(accessToken!, activeBattleId),
+    enabled: ready && Boolean(activeBattleId),
+    refetchInterval: (query) => query.state.data?.some((challenge) => challenge.status === 'voting') ? 5000 : false,
+  })
+  const challenge: PersistedChallenge | undefined = challengesQuery.data?.find((item) => item.id === generatedChallengeId)
+    ?? challengesQuery.data?.[0]
+  const activeVoting = challenge?.status === 'voting'
+  const voteTotalsQuery = useQuery({
+    queryKey: ['challenge-votes', challenge?.id],
+    queryFn: () => fetchVoteTotals(accessToken!, challenge!.id),
+    enabled: ready && Boolean(activeVoting && challenge?.id),
+    refetchInterval: activeVoting ? 5000 : false,
+  })
+  const optionSelected = challenge?.challenge_options.find((option) => option.id === (challenge.selected_option_id ?? selectedOptionId))
+  const currentVoteCount = voteTotalsQuery.data?.reduce((sum, option) => sum + option.vote_count, 0) ?? 0
+
+  useEffect(() => {
+    if (!challenge?.voting_ends_at) return
+    const timer = window.setTimeout(() => setVotingExpired(true), Math.max(0, Date.parse(challenge.voting_ends_at) - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [challenge?.voting_ends_at])
+
+  const runAction = async (action: () => Promise<void>, successMessage: string) => {
+    setBusy(true)
+    setNotice('')
+    try {
+      await action()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['challenges', activeBattleId] }),
+        queryClient.invalidateQueries({ queryKey: ['community-open-challenges'] }),
+        queryClient.invalidateQueries({ queryKey: ['challenge-votes', challenge?.id] }),
+      ])
+      setNotice(successMessage)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The challenge request could not be completed.')
+    } finally {
+      setBusy(false)
+    }
   }
-  const addCustom = () => {
-    if (custom.trim().length < 8 || custom.trim().length > 240) {
-      setNotice('Write a custom demo challenge between 8 and 240 characters.')
+
+  const generate = async () => {
+    if (!accessToken || !selectedBattle) return
+    if (brief.trim().length < 8) {
+      setNotice('Add a competition brief of at least 8 characters.')
       return
     }
-    const addition = { title: 'Creator-written challenge', rules: custom.trim(), category, difficulty }
-    setSuggestions((current) => [addition, ...current].slice(0, 5))
-    setVoteSession((session) => session + 1)
-    setVoteCounts([18, 13, 9, 5, 2])
-    setCustom('')
-    setStage('suggestions')
-    setNotice('Custom challenge added to this local demo session.')
-  }
-  const beginEdit = (index: number, challenge: Challenge) => {
-    setEditingIndex(index)
-    setEditTitle(challenge.title)
-    setEditRules(challenge.rules)
-  }
-  const saveEdit = () => {
-    if (editingIndex === null || editTitle.trim().length < 4 || editRules.trim().length < 8) {
-      setNotice('Add a title of at least 4 characters and a brief of at least 8 characters.')
-      return
-    }
-    setSuggestions((current) => current.map((challenge, index) => index === editingIndex
-      ? { ...challenge, title: editTitle.trim(), rules: editRules.trim() }
-      : challenge))
-    setEditingIndex(null)
-    setNotice('Your challenge edits were saved in this browser demo.')
-  }
-  const closeVote = () => {
-    const ranked = [...suggestions].sort((first, second) => {
-      const firstIndex = suggestions.indexOf(first)
-      const secondIndex = suggestions.indexOf(second)
-      return (voteCounts[secondIndex] ?? 0) - (voteCounts[firstIndex] ?? 0)
-    })
-    setSelected(ranked[0] ?? suggestions[0] ?? null)
-    setStage('acceptance')
-    setNotice('The highest sample vote was selected locally. Both creator acceptance states are still pending.')
-  }
-  const vote = (index: number, title: string) => {
-    if (existingVote) return
-    setVoteCounts((counts) => counts.map((count, position) => position === index ? count + 1 : count))
-    castVote(voteKey, title)
-    setNotice('Your demo vote was recorded in this browser.')
-  }
-  const handleAcceptance = (creatorIndex: 0 | 1, choice: 'accept' | 'decline') => {
-    if (choice === 'decline') {
-      const selectedIndex = Math.max(0, suggestions.findIndex((challenge) => challenge.title === selected?.title))
-      const fallback = suggestions[(selectedIndex + 1) % Math.max(1, suggestions.length)]
-      setSelected(fallback ?? null)
-      setAccepted([false, false])
-      setStage(fallback ? 'acceptance' : 'suggestions')
-      setNotice(fallback ? 'One creator declined. The next ranked demo challenge is now offered.' : 'No fallback challenge is available in this demo set.')
-      return
-    }
-    const next = [...accepted] as [boolean, boolean]
-    next[creatorIndex] = true
-    setAccepted(next)
-    if (next.every(Boolean)) {
-      setStage('offered')
-      setNotice('Both demo creators accepted. The challenge is ready for the demo battle state machine.')
-    } else {
-      setNotice('One creator accepted locally. The other acceptance is still pending.')
+    setBusy(true)
+    setNotice('')
+    setGeneratedChallengeId('')
+    setSelectedOptionId('')
+    setVotingExpired(false)
+    try {
+      const preferences = {
+        battleId: selectedBattle.id,
+        category,
+        challengeType,
+        difficulty,
+        durationMinutes: effectiveDuration,
+        format: selectedBattle.format as 'creator-vs-creator' | 'creator-vs-community' | 'community-vs-community',
+        brief: brief.trim(),
+        customInstructions: customInstructions.trim(),
+      }
+      const options = await generateChallenges(accessToken, preferences)
+      const id = await saveGeneratedChallenges(accessToken, preferences, options)
+      setGeneratedChallengeId(id)
+      await queryClient.invalidateQueries({ queryKey: ['challenges', selectedBattle.id] })
+      setNotice('AI generated and saved ' + options.length + ' structured challenge options. Choose one to continue.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Challenge generation failed. No demo suggestions were substituted.')
+    } finally {
+      setBusy(false)
     }
   }
+
+  const canVote = Boolean(challenge && challenge.status === 'voting' && !voteTotalsQuery.isError)
 
   return (
     <div className="workspace-page">
-      <PageHeading eyebrow="CHALLENGE DIRECTOR · DEMO" title="Make the next challenge a good one." description="Shape a brief, review curated suggestions, preview community voting, and walk through the offer lifecycle." action={<DemoBadge>AI DEMO</DemoBadge>} />
-      <DemoNotice>This director uses curated local suggestions. It does not call an AI service or send prompts to a backend.</DemoNotice>
+      <PageHeading eyebrow="CHALLENGE DIRECTOR · AI POWERED" title="Make the next challenge a good one." description="Generate structured competition briefs, persist the options, and move the selected challenge through voting and creator approval." action={<span className="status-pill">{ready ? 'AUTHENTICATED API' : 'CONNECTION REQUIRED'}</span>} />
+      {!ready && <DemoNotice>Live Challenge Studio requires a signed-in Supabase account and a configured Creator Clash API. This screen will not substitute demo challenges.</DemoNotice>}
+      {ready && <DemoNotice>AI requests run on the API server. Generated options and workflow state are saved in Supabase; no challenge result is decided by the browser.</DemoNotice>}
       {notice && <InlineNotice>{notice}</InlineNotice>}
+      {battlesQuery.isError && <InlineNotice>{battlesQuery.error.message}</InlineNotice>}
+      {challengesQuery.isError && <InlineNotice>{challengesQuery.error.message}</InlineNotice>}
+
       <div className="director-layout">
         <Panel className="director-config" eyebrow="01 / DEFINE THE MOMENT" title="Set the parameters">
-          <label className="field-label">Competition type<select className="text-input" onChange={(event) => setCompetitionType(event.target.value)} value={competitionType}><option>Creator vs Creator</option><option>Creator vs Community</option><option>Community vs Community</option></select></label>
+          <label className="field-label">Battle<select className="text-input" disabled={!ready || battlesQuery.isPending || !availableBattles.length} onChange={(event) => { const nextBattle = availableBattles.find((item) => item.id === event.target.value); setBattleId(event.target.value); if (nextBattle) setCategory(nextBattle.category); setGeneratedChallengeId(''); setVotingExpired(false) }} value={activeBattleId}>
+            <option value="">{battlesQuery.isPending ? 'Loading battles…' : 'Choose an accepted battle'}</option>
+            {availableBattles.map((battle) => <option key={battle.id} value={battle.id}>{battle.title} · {battle.category}</option>)}
+          </select></label>
+          {ready && !battlesQuery.isPending && !availableBattles.length && <p className="field-help">No accepted battle participation is available for this account yet.</p>}
           <label className="field-label">Category<select className="text-input" onChange={(event) => setCategory(event.target.value)} value={category}>{creatorCategories.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label className="field-label">Difficulty<select className="text-input" onChange={(event) => setDifficulty(event.target.value)} value={difficulty}><option>Open to all</option><option>Relaxed</option><option>Balanced</option><option>High energy</option></select></label>
-          <label className="field-label">Duration<select className="text-input" onChange={(event) => setDuration(Number(event.target.value))} value={duration}><option value={15}>15 min</option><option value={30}>30 min</option><option value={45}>45 min</option><option value={60}>60 min</option></select></label>
-          <p className="field-help">Review three to five curated examples for this category. No AI call is made.</p>
-          <button className="button button-primary" onClick={generate} type="button"><Sparkles size={16} />Generate demo suggestions</button>
-          <div className="custom-challenge"><span className="eyebrow">OR WRITE YOUR OWN</span><textarea className="text-input text-area" maxLength={240} onChange={(event) => setCustom(event.target.value)} placeholder="Describe a challenge in your own words" value={custom} /><button className="button button-secondary" onClick={addCustom} type="button">Add custom challenge</button></div>
+          <label className="field-label">Challenge type<select className="text-input" onChange={(event) => setChallengeType(event.target.value)} value={challengeType}>{challengeTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label className="field-label">Difficulty<select className="text-input" onChange={(event) => setDifficulty(event.target.value as (typeof difficulties)[number])} value={difficulty}>{difficulties.map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label className="field-label">Duration<select className="text-input" onChange={(event) => setDurationMinutes(Number(event.target.value))} value={effectiveDuration}>{durationOptions.map((item) => <option key={item} value={item}>{item} minutes</option>)}</select></label>
+          <label className="field-label">Competition brief<textarea className="text-input text-area" maxLength={800} onChange={(event) => setBrief(event.target.value)} placeholder="What should the creators make, solve, or perform?" value={brief} /></label>
+          <label className="field-label">Optional creator instructions<textarea className="text-input text-area" maxLength={500} onChange={(event) => setCustomInstructions(event.target.value)} placeholder="Accessibility, materials, tone, or other constraints" value={customInstructions} /></label>
+          <p className="field-help">Format is inherited from the selected battle: {selectedBattle?.format ?? 'choose a battle first'}.</p>
+          <button className="button button-primary" disabled={!ready || !selectedBattle || busy || battlesQuery.isPending} onClick={() => void generate()} type="button">
+            {busy ? <><LoaderCircle className="director-spinner" size={16} />Generating and saving…</> : <><Sparkles size={16} />Generate with AI</>}
+          </button>
         </Panel>
-        <div className="director-workflow">
-          <ol className="director-stage-track">
-            {(['configure', 'suggestions', 'voting', 'acceptance', 'offered'] as const).map((item, index) => <li className={stage === item ? 'active' : ''} key={item}><span>0{index + 1}</span>{item === 'configure' ? 'Brief' : item === 'suggestions' ? 'Suggestions' : item === 'voting' ? 'Community vote' : item === 'acceptance' ? 'Creator approval' : 'Ready'}</li>)}
-          </ol>
-          {stage === 'configure' && <EmptyDirector />}
-          {stage === 'suggestions' && (
-            <Panel eyebrow="02 / REVIEW" title="Challenge suggestions">
-              <div className="suggestion-list">{suggestions.map((challenge, index) => <article className="suggestion-item" key={challenge.title}><span className="suggestion-index">0{index + 1}</span><div><span className="eyebrow">{challenge.category} · {duration} MIN · {competitionType} · {challenge.difficulty}</span>{editingIndex === index ? <div className="challenge-edit-fields"><label className="field-label">Challenge title<input className="text-input" maxLength={70} onChange={(event) => setEditTitle(event.target.value)} value={editTitle} /></label><label className="field-label">Brief<textarea className="text-input text-area" maxLength={240} onChange={(event) => setEditRules(event.target.value)} value={editRules} /></label><button className="button button-secondary" onClick={saveEdit} type="button">Save edits</button><button className="text-action" onClick={() => setEditingIndex(null)} type="button">Cancel</button></div> : <><h3>{challenge.title}</h3><p>{challenge.rules}</p><button className="text-action" onClick={() => beginEdit(index, challenge)} type="button">Edit this suggestion</button></>}</div><DemoBadge /></article>)}</div>
-              <button className="button button-primary" disabled={!suggestions.length} onClick={() => { setStage('voting'); setNotice('Community preview is open. Votes are local demo input.') }} type="button"><Vote size={16} />Open community voting preview</button>
+
+        <div className="director-results">
+          {!ready && <EmptyDirector title="Connect the live service" detail="Sign in with a configured account and API to generate real challenges. No local suggestion fallback is available." />}
+          {ready && battlesQuery.isPending && <EmptyDirector title="Loading your battles" detail="Checking accepted battle participation before enabling challenge generation." loading />}
+          {ready && !battlesQuery.isPending && !availableBattles.length && <EmptyDirector title="An accepted battle is required" detail="Challenge options are always saved against an authenticated battle and creator." />}
+          {ready && selectedBattle && !challenge && !challengesQuery.isPending && <EmptyDirector title="Ready for a real challenge" detail="Choose the preferences and competition brief, then request structured suggestions from the server-side AI service." />}
+          {challengesQuery.isPending && <EmptyDirector title="Loading saved challenges" detail="Reading persisted challenge options from the selected battle." loading />}
+          {challenge && (
+            <Panel eyebrow={'BATTLE · ' + challenge.status.toUpperCase()} title={challenge.status === 'voting' ? 'Community vote is open' : challenge.status === 'approval' ? 'Creator approval' : challenge.status === 'approved' ? 'Challenge approved' : challenge.status === 'rejected' ? 'Challenge declined' : 'Saved challenge options'}>
+              <p className="panel-copy">{challenge.prompt}</p>
+              {challenge.status === 'draft' && <p className="panel-copy">Select one option for approval, or open the optional community vote. The server records either transition.</p>}
+              <div className="suggestion-list">
+                {challenge.challenge_options.map((option) => {
+                  const votes = voteTotalsQuery.data?.find((entry) => entry.option_id === option.id)?.vote_count ?? 0
+                  const isSelected = (challenge.selected_option_id ?? selectedOptionId) === option.id
+                  const approval = challenge.challenge_approvals.find((item) => item.creator_id === auth.session?.user.id)
+                  return (
+                    <article className={isSelected ? 'suggestion-item selected-option' : 'suggestion-item'} key={option.id}>
+                      <span className="suggestion-index">{String(option.position).padStart(2, '0')}</span>
+                      <div className="suggestion-copy">
+                        <span className="eyebrow">{option.difficulty} · {option.estimated_duration_minutes} MIN</span>
+                        <h3>{option.title}</h3>
+                        <p>{option.description}</p>
+                        <details className="challenge-details"><summary>Rules, score and victory conditions</summary><dl><dt>Rules</dt><dd>{option.rules}</dd><dt>Scoring</dt><dd>{option.scoring_method}</dd><dt>Preparation</dt><dd>{option.equipment_preparation}</dd><dt>Victory</dt><dd>{option.victory_conditions}</dd></dl></details>
+                        {challenge.status === 'voting' && <p className="field-help">{votes} {votes === 1 ? 'vote' : 'votes'}</p>}
+                        {challenge.status === 'approval' && isSelected && <p className="field-help">{approval ? (approval.approved ? 'Your approval is recorded.' : 'Your rejection is recorded.') : 'Awaiting your approval decision.'}</p>}
+                      </div>
+                      {challenge.status === 'draft' && challenge.created_by === auth.session?.user.id && <button className={isSelected ? 'button button-primary' : 'button button-secondary'} disabled={busy} onClick={() => setSelectedOptionId(option.id)} type="button">{isSelected ? <><Check size={14} />Selected</> : 'Select option'}</button>}
+                      {challenge.status === 'draft' && challenge.created_by !== auth.session?.user.id && <span className="status-pill">Awaiting challenge owner</span>}
+                      {challenge.status === 'voting' && <button aria-label={'Vote for ' + option.title} className="icon-button" disabled={!canVote || busy || voteTotalsQuery.isPending || voteTotalsQuery.data?.some((entry) => entry.viewer_option_id !== null)} onClick={() => void runAction(() => voteForChallenge(accessToken!, challenge.id, option.id), 'Your vote has been recorded by the server.')} type="button"><Vote size={16} /></button>}
+                      {challenge.status === 'approval' && isSelected && <span className="status-pill">{challenge.challenge_approvals.length} / 2 decisions</span>}
+                    </article>
+                  )
+                })}
+              </div>
+              {challenge.status === 'draft' && challenge.created_by === auth.session?.user.id && <div className="challenge-actions">
+                <button className="button button-primary" disabled={!selectedOptionId || busy} onClick={() => void runAction(() => selectChallengeOption(accessToken!, challenge.id, selectedOptionId), 'Selected option sent to the creator approval stage.')} type="button"><Check size={15} />Select for approval</button>
+                <button className="button button-secondary" disabled={busy} onClick={() => void runAction(() => openChallengeVoting(accessToken!, challenge.id), 'Community voting is open for ten minutes.')} type="button"><Vote size={15} />Open optional community vote</button>
+              </div>}
+              {challenge.status === 'draft' && challenge.created_by !== auth.session?.user.id && <p className="panel-copy">The challenge creator must select an option or open a community vote.</p>}
+              {challenge.status === 'voting' && <div className="challenge-actions">
+                <span className="field-help">{currentVoteCount} server-recorded votes · ends {challenge.voting_ends_at ? new Date(challenge.voting_ends_at).toLocaleTimeString() : 'soon'}</span>
+                {votingExpired && <button className="button button-primary" disabled={busy} onClick={() => void runAction(() => finalizeChallengeVoting(accessToken!, challenge.id), 'The server finalized the poll and selected the highest-ranked option.')} type="button">Finalize vote on server <ArrowRight size={15} /></button>}
+                {voteTotalsQuery.isError && <InlineNotice>{voteTotalsQuery.error.message}</InlineNotice>}
+              </div>}
+              {challenge.status === 'approval' && optionSelected && <div className="challenge-actions">
+                <button className="button button-primary" disabled={busy || challenge.challenge_approvals.some((item) => item.creator_id === auth.session?.user.id)} onClick={() => void runAction(() => approveChallenge(accessToken!, challenge.id, true), 'Your approval decision was saved.')} type="button"><Check size={15} />Approve challenge</button>
+                <button className="button button-secondary" disabled={busy || challenge.challenge_approvals.some((item) => item.creator_id === auth.session?.user.id)} onClick={() => void runAction(() => approveChallenge(accessToken!, challenge.id, false), 'Your rejection decision was saved.')} type="button"><ThumbsDown size={15} />Reject challenge</button>
+              </div>}
+              {challenge.status === 'approved' && optionSelected && <div className="selected-challenge selected-ready"><Check size={19} /><div><span className="eyebrow">SERVER-APPROVED CHALLENGE</span><h3>{optionSelected.title}</h3><p>{optionSelected.description}</p></div></div>}
+              {challenge.status === 'rejected' && <InlineNotice>The creator approvals rejected this challenge. Generate a new option set to continue.</InlineNotice>}
             </Panel>
           )}
-          {stage === 'voting' && (
-            <Panel eyebrow="03 / COMMUNITY PREVIEW" title="Which challenge should lead?">
-              <p className="panel-copy">Vote counts combine a small sample distribution with your local demo vote. They do not represent a live audience.</p>
-              <div className="director-vote-list">{suggestions.map((challenge, index) => <div className="director-vote" key={challenge.title}><div><strong>{challenge.title}</strong><small>{challenge.rules}</small><span className="vote-bar"><i style={{ width: Math.min(100, ((voteCounts[index] ?? 0) / 50) * 100) + '%' }} /></span></div><span className="vote-total">{voteCounts[index] ?? 0}</span><button aria-label={'Vote for ' + challenge.title} className={existingVote === challenge.title ? 'icon-button selected' : 'icon-button'} disabled={Boolean(existingVote)} onClick={() => vote(index, challenge.title)} type="button"><Vote size={16} /></button></div>)}</div>
-              <button className="button button-primary" onClick={closeVote} type="button">Close demo vote & rank <ArrowRight size={16} /></button>
-            </Panel>
-          )}
-          {stage === 'acceptance' && selected && (
-            <Panel eyebrow="04 / CREATOR ACCEPTANCE" title="Both creators must agree.">
-              <div className="selected-challenge"><DemoBadge /> <h3>{selected.title}</h3><p>{selected.rules}</p></div>
-              <div className="acceptance-rows">{['Mira Vale', 'Sol Chen'].map((creator, index) => <div className="acceptance-row" key={creator}><span className="acceptance-avatar">{creator.split(' ').map((part) => part[0]).join('')}</span><strong>{creator}</strong><span className={accepted[index] ? 'accepted-state' : 'pending-state'}>{accepted[index] ? 'Accepted in demo' : 'Awaiting response'}</span><button className="button button-secondary" onClick={() => handleAcceptance(index as 0 | 1, 'accept')} type="button"><Check size={14} />Accept</button><button aria-label={'Decline for ' + creator} className="icon-button" onClick={() => handleAcceptance(index as 0 | 1, 'decline')} type="button"><ThumbsDown size={15} /></button></div>)}</div>
-              <p className="demo-caption">If a creator declines, the next ranked eligible demo challenge is offered.</p>
-            </Panel>
-          )}
-          {stage === 'offered' && selected && (
-            <Panel eyebrow="05 / READY FOR THE BATTLE" title="Challenge accepted.">
-              <div className="selected-challenge selected-ready"><Check aria-hidden="true" size={20} /><div><h3>{selected.title}</h3><p>{selected.rules}</p></div><DemoBadge /></div>
-              <p className="panel-copy">This accepted demo brief can be carried into the local battle lifecycle preview.</p>
-              <button className="button button-primary" onClick={() => setNotice('Demo challenge state is ready; no external competition was created.')} type="button">Keep this demo brief</button>
-            </Panel>
-          )}
+          {challenge && challenge.status !== 'voting' && <button className="button button-secondary" disabled={busy || !ready || !selectedBattle} onClick={() => void generate()} type="button"><Sparkles size={15} />Generate another set</button>}
         </div>
       </div>
     </div>
   )
 }
 
-function EmptyDirector() {
-  return (
-    <div className="director-empty">
-      <span className="director-empty-icon"><CircleHelp size={21} /></span>
-      <p className="eyebrow">THE CHALLENGE LIFECYCLE</p>
-      <h2>From suggestion to shared brief.</h2>
-      <p>Generate a curated demo set, preview a community vote, then require both creators to accept. A decline moves the offer to the next ranked suggestion.</p>
-      <div className="director-empty-footer"><DemoBadge /> Curated local data · no AI call</div>
-    </div>
-  )
+function EmptyDirector({ title, detail, loading = false }: { title: string; detail: string; loading?: boolean }) {
+  return <div aria-live="polite" className="director-empty">
+    <span className="director-empty-icon">{loading ? <LoaderCircle className="director-spinner" size={21} /> : <CircleHelp size={21} />}</span>
+    <p className="eyebrow">CHALLENGE STUDIO</p>
+    <h2>{title}</h2>
+    <p>{detail}</p>
+    <div className="director-empty-footer"><Sparkles size={14} /> Server-validated · battle-associated</div>
+  </div>
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Award, Check, Heart, Search, Users, Vote, Wallet } from 'lucide-react'
 import { Link } from 'react-router'
 import { BattleCard } from '../../components/data/BattleCard'
@@ -18,6 +18,7 @@ import { useDemoStore } from '../../stores/demoStore'
 import { useAuth } from '../auth/useAuth'
 import { runtimeConfig } from '../../config/runtime'
 import { fetchWalletTransactions, fetchWallets } from '../../services/walletApi'
+import { fetchOpenChallenges, fetchVoteTotals, voteForChallenge, type PersistedChallenge } from '../../services/challengeApi'
 import { announceMotionPreferenceChange } from '../../utils/motionPreference'
 
 export function CommunityOverviewPage() {
@@ -97,6 +98,15 @@ export function CommunityDiscoverPage() {
 }
 
 export function CommunityActivitiesPage() {
+  const auth = useAuth()
+  const accessToken = auth.session?.access_token
+  const liveVotingEnabled = Boolean(runtimeConfig.apiBaseUrl && auth.configured && accessToken)
+  const liveChallenges = useQuery({
+    queryKey: ['community-open-challenges', auth.session?.user.id],
+    queryFn: () => fetchOpenChallenges(accessToken!),
+    enabled: liveVotingEnabled,
+    refetchInterval: 10_000,
+  })
   const votes = useDemoStore((state) => state.votes)
   const castVote = useDemoStore((state) => state.castVote)
   const complete = useDemoStore((state) => state.completeDemoActivity)
@@ -111,9 +121,16 @@ export function CommunityActivitiesPage() {
 
   return (
     <div className="workspace-page">
-      <PageHeading eyebrow="COMMUNITY · ACTIVITIES" title="Your voice belongs in the room." description="Vote on a challenge prompt, play a demo mini-game, or explore community competition." action={<DemoBadge>DEMO ACTIVITIES</DemoBadge>} />
-      <DemoNotice>Voting and activity completion are local demo interactions. Token eligibility and awards require a server connection.</DemoNotice>
+      <PageHeading eyebrow="COMMUNITY · ACTIVITIES" title="Your voice belongs in the room." description="Vote on open AI challenges, play a demo mini-game, or explore community competition." action={<DemoBadge>LIVE VOTES · DEMO GAMES</DemoBadge>} />
+      <DemoNotice>Sample activity cards and game completions are local demos. Open challenge polls use the authenticated API; no token eligibility or awards are connected.</DemoNotice>
       {notice && <InlineNotice>{notice}</InlineNotice>}
+      {liveVotingEnabled && <section aria-labelledby="live-challenge-votes" className="section-block">
+        <div className="section-title-row"><div><p className="eyebrow">LIVE · SERVER-RECORDED</p><h2 id="live-challenge-votes">Challenges open for community voting</h2></div><span className="eyebrow">{liveChallenges.data?.length ?? 0} OPEN</span></div>
+        {liveChallenges.isPending && <p className="panel-copy">Loading open challenge votes…</p>}
+        {liveChallenges.isError && <InlineNotice>{liveChallenges.error.message}</InlineNotice>}
+        {liveChallenges.data?.map((challenge) => <LiveChallengePoll challenge={challenge} accessToken={accessToken!} key={challenge.id} />)}
+        {!liveChallenges.isPending && !liveChallenges.isError && !liveChallenges.data?.length && <EmptyState title="No live challenge polls." description="An open community vote will appear here when a creator starts one." />}
+      </section>}
       <div className="activity-feed">
         {demoActivities.map((activity, index) => {
           const creator = creatorById(activity.creatorId)
@@ -150,6 +167,53 @@ export function CommunityActivitiesPage() {
       </div>
     </div>
   )
+}
+
+function LiveChallengePoll({ challenge, accessToken }: { challenge: PersistedChallenge; accessToken: string }) {
+  const queryClient = useQueryClient()
+  const [busyOption, setBusyOption] = useState('')
+  const [notice, setNotice] = useState('')
+  const totals = useQuery({
+    queryKey: ['challenge-votes', challenge.id],
+    queryFn: () => fetchVoteTotals(accessToken, challenge.id),
+    refetchInterval: 5000,
+  })
+  const viewerVote = totals.data?.[0]?.viewer_option_id ?? null
+  const vote = async (optionId: string) => {
+    setBusyOption(optionId)
+    setNotice('')
+    try {
+      await voteForChallenge(accessToken, challenge.id, optionId)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['challenge-votes', challenge.id] }),
+        queryClient.invalidateQueries({ queryKey: ['community-open-challenges'] }),
+      ])
+      setNotice('Your vote was recorded by the server.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Your vote could not be recorded.')
+      await totals.refetch()
+    } finally {
+      setBusyOption('')
+    }
+  }
+  const totalVotes = totals.data?.reduce((sum, item) => sum + item.vote_count, 0) ?? 0
+  return <article className="activity-feature live-challenge-poll">
+    <div className="activity-feature-meta"><span className="activity-index"><Vote size={15} /></span><DemoBadge>LIVE VOTE</DemoBadge><span className="activity-deadline">{totalVotes} server votes</span></div>
+    <div className="activity-feature-heading"><div><span className="eyebrow">BATTLE {challenge.battle_id.slice(0, 8)}</span><h2>Which challenge should lead?</h2></div></div>
+    {totals.isError && <InlineNotice>{totals.error.message}</InlineNotice>}
+    {notice && <InlineNotice>{notice}</InlineNotice>}
+    <fieldset className="vote-options" disabled={Boolean(viewerVote) || totals.isError || totals.isPending}>
+      <legend className="sr-only">Choose one challenge option</legend>
+      {challenge.challenge_options.map((option) => {
+        const count = totals.data?.find((item) => item.option_id === option.id)?.vote_count ?? 0
+        const selected = viewerVote === option.id
+        return <button aria-pressed={selected} className={selected ? 'vote-option selected' : 'vote-option'} disabled={Boolean(viewerVote) || Boolean(busyOption) || totals.isPending} key={option.id} onClick={() => void vote(option.id)} type="button">
+          <span>{String(option.position).padStart(2, '0')}</span><span className="live-vote-copy"><strong>{option.title}</strong><small>{option.description}</small></span><span className="vote-percent">{busyOption === option.id ? 'SENDING…' : selected ? 'YOUR VOTE' : count + ' votes'}</span>
+        </button>
+      })}
+    </fieldset>
+    <div className="activity-feature-footer"><span>{viewerVote ? 'Your vote is locked for this poll.' : 'One vote per account; the database enforces duplicates.'}</span>{notice && <span>{notice}</span>}</div>
+  </article>
 }
 
 export function CommunitySupportPage() {

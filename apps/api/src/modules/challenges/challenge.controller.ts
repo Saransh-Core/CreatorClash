@@ -1,8 +1,8 @@
 import type { RequestHandler } from 'express'
 import { z } from 'zod'
 import { AppError } from '../../shared/errors.js'
-import { approvalSchema, challengeGenerationSchema, challengeIdSchema, editOptionSchema, saveChallengeSchema, voteSchema } from './challenge.schemas.js'
-import { editOption, finishVoting, generateSuggestions, listChallenges, saveSuggestions, setChallengeApproval, startVoting, voteChallenge } from './challenge.service.js'
+import { approvalSchema, challengeGenerationSchema, challengeIdSchema, editOptionSchema, saveChallengeSchema, selectOptionSchema, voteSchema } from './challenge.schemas.js'
+import { editOption, finishVoting, generateSuggestions, getChallengeTotals, listChallenges, listOpenChallenges, saveSuggestions, selectChallengeOption, setChallengeApproval, startVoting, voteChallenge } from './challenge.service.js'
 
 function dependencies(request: Parameters<RequestHandler>[0]) {
   if (!request.authUser || !request.supabase) throw new AppError('Authentication is required.', 401, 'UNAUTHENTICATED')
@@ -32,11 +32,32 @@ export const listChallengesController: RequestHandler = async (request, response
   } catch (error) { next(error) }
 }
 
+export const listOpenChallengesController: RequestHandler = async (request, response, next) => {
+  try {
+    response.json({ data: await listOpenChallenges(dependencies(request).client) })
+  } catch (error) { next(error) }
+}
+
 export const voteChallengeController: RequestHandler = async (request, response, next) => {
   try {
     const challengeId = challengeIdSchema.parse(request.params['challengeId'])
     const { optionId } = voteSchema.parse(request.body)
     response.json({ data: await voteChallenge(dependencies(request).client, challengeId, optionId) })
+  } catch (error) { next(error) }
+}
+
+export const challengeVoteTotalsController: RequestHandler = async (request, response, next) => {
+  try {
+    const challengeId = challengeIdSchema.parse(request.params['challengeId'])
+    response.json({ data: await getChallengeTotals(dependencies(request).client, challengeId) })
+  } catch (error) { next(error) }
+}
+
+export const selectChallengeOptionController: RequestHandler = async (request, response, next) => {
+  try {
+    const challengeId = challengeIdSchema.parse(request.params['challengeId'])
+    const { optionId } = selectOptionSchema.parse(request.body)
+    response.json({ data: await selectChallengeOption(dependencies(request).client, challengeId, optionId) })
   } catch (error) { next(error) }
 }
 

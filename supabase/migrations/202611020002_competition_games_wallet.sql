@@ -825,13 +825,18 @@ create policy notifications_owner_update on public.notifications for update to a
 -- The initial migration granted full SELECT on twitch_accounts, including encrypted credentials.
 -- Remove that grant and expose only non-secret identity metadata to the account owner.
 revoke select on public.twitch_accounts from authenticated;
-grant select (id,user_id,twitch_user_id,twitch_login,scopes,created_at,updated_at) on public.twitch_accounts to authenticated;
-grant select on public.connected_accounts(id,user_id,provider,external_user_id,login,display_name,scopes,linked_at,created_at,updated_at) to authenticated;
+grant select (id,user_id,twitch_user_id,twitch_login,scopes,created_at,updated_at)
+  on table public.twitch_accounts to authenticated;
+grant select (id,user_id,provider,external_user_id,login,display_name,scopes,linked_at,created_at,updated_at)
+  on table public.connected_accounts to authenticated;
 grant select on public.battle_events,public.matchmaking_queue,public.matchmaking_history,public.matchmaking_proposals,public.challenges,public.challenge_options,public.challenge_votes,public.challenge_approvals to authenticated;
 grant select on public.game_types to anon,authenticated;
-grant select on public.game_question_bank(id,game_type_id,question,options,is_active,created_at) to authenticated;
-grant select on public.game_sessions(id,battle_id,game_type_id,created_by,status,starts_at,ends_at,completed_at,created_at,updated_at) to authenticated;
-grant select on public.game_questions(id,game_session_id,sequence,question,options,created_at) to authenticated;
+grant select (id,game_type_id,question,options,is_active,created_at)
+  on table public.game_question_bank to authenticated;
+grant select (id,battle_id,game_type_id,created_by,status,starts_at,ends_at,completed_at,created_at,updated_at)
+  on table public.game_sessions to authenticated;
+grant select (id,game_session_id,sequence,question,options,created_at)
+  on table public.game_questions to authenticated;
 grant select on public.game_participants,public.game_answers,public.game_results to authenticated;
 grant select on public.wallets,public.wallet_transactions,public.reward_redemptions to authenticated;
 grant select on public.championships,public.championship_registrations,public.championship_rounds,public.championship_standings,public.rewards to anon,authenticated;

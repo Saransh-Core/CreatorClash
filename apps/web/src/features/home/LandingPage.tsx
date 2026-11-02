@@ -1,20 +1,59 @@
-import { ArrowDown, ArrowRight, ArrowUpRight, Trophy } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUpRight, Sparkles, Trophy, UsersRound } from 'lucide-react'
 import { motion } from 'motion/react'
 import { Link } from 'react-router'
 import { BattleCard } from '../../components/data/BattleCard'
 import { ImmersiveScene } from '../../components/scenes/ImmersiveScene'
 import { DemoBadge } from '../../components/ui/DemoBadge'
 import { creatorCategories, demoBattles } from '../../services/demoData'
+import { useEffect, useRef, type CSSProperties } from 'react'
+import { demoCreators } from '../../services/demoData'
 import { useMotionPreference } from '../../utils/motionPreference'
 
 export function LandingPage() {
   const reduceMotion = useMotionPreference()
+  const heroRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    const hero = heroRef.current
+    if (!hero || reduceMotion || window.matchMedia('(max-width: 760px)').matches) return
+
+    let frame = 0
+    const onPointerMove = (event: PointerEvent) => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const bounds = hero.getBoundingClientRect()
+        hero.style.setProperty('--pointer-x', String((event.clientX - bounds.left) / bounds.width - 0.5))
+        hero.style.setProperty('--pointer-y', String((event.clientY - bounds.top) / bounds.height - 0.5))
+      })
+    }
+    const reset = () => {
+      hero.style.setProperty('--pointer-x', '0')
+      hero.style.setProperty('--pointer-y', '0')
+    }
+    hero.addEventListener('pointermove', onPointerMove, { passive: true })
+    hero.addEventListener('pointerleave', reset, { passive: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      hero.removeEventListener('pointermove', onPointerMove)
+      hero.removeEventListener('pointerleave', reset)
+    }
+  }, [reduceMotion])
 
   return (
     <>
-      <section aria-labelledby="hero-title" className="hero-section">
-        <div aria-hidden="true" className="hero-orbit hero-orbit-outer" />
-        <div aria-hidden="true" className="hero-orbit hero-orbit-inner" />
+      <section aria-labelledby="hero-title" className="hero-section" ref={heroRef}>
+        <div aria-hidden="true" className="hero-visual">
+          <img alt="" fetchPriority="high" src="/art/samurai-arena.jpg" />
+        </div>
+        <div aria-hidden="true" className="hero-atmosphere">
+          <span className="hero-mist hero-mist-one" />
+          <span className="hero-mist hero-mist-two" />
+          <span className="sakura-petal petal-one" />
+          <span className="sakura-petal petal-two" />
+          <span className="sakura-petal petal-three" />
+          <span className="sakura-petal petal-four" />
+          <span className="sakura-petal petal-five" />
+        </div>
         <div className="hero-copy">
           <motion.div
             animate={{ opacity: 1, y: 0 }}
@@ -28,7 +67,7 @@ export function LandingPage() {
           >
             <p className="eyebrow hero-eyebrow">
               <span aria-hidden="true" className="eyebrow-rule" />
-              CREATOR CLASH · A SHARED ARENA FOR EVERY CREATOR
+              CREATOR CLASH · THE LIVING ARENA
             </p>
             <h1 id="hero-title">
               Your Community.
@@ -38,12 +77,12 @@ export function LandingPage() {
               <span className="headline-accent">Your Victory.</span>
             </h1>
             <p className="hero-description">
-              Creator Clash brings creators and their communities together through
-              challenges, competitions, and shared experiences.
+              Where creators become warriors, communities become clans, and every
+              competition writes a new legend.
             </p>
             <div className="hero-actions">
               <Link className="button button-primary" to="/arena">
-                Explore the Arena <ArrowUpRight aria-hidden="true" size={17} />
+                Enter the Arena <ArrowUpRight aria-hidden="true" size={17} />
               </Link>
               <Link className="button button-secondary" to="/signup?mode=creator">
                 Become a Creator
@@ -51,27 +90,6 @@ export function LandingPage() {
               </Link>
             </div>
           </motion.div>
-        </div>
-
-        <div aria-hidden="true" className="arena-composition">
-          <ImmersiveScene kind="arena" />
-          <div aria-hidden="true" className="arena-halo" />
-          <div aria-hidden="true" className="arena-rail arena-rail-top" />
-          <div aria-hidden="true" className="arena-rail arena-rail-bottom" />
-          <div aria-hidden="true" className="arena-axis" />
-          <div aria-hidden="true" className="arena-corner arena-corner-one" />
-          <div aria-hidden="true" className="arena-corner arena-corner-two" />
-          <div className="arena-monogram">
-            <span className="monogram-c">C</span>
-            <span className="monogram-c monogram-second">C</span>
-            <span className="monogram-caption">THE ARENA IS YOURS</span>
-          </div>
-          <span aria-hidden="true" className="arena-index arena-index-top">
-            01 <span>·</span> CREATOR
-          </span>
-          <span aria-hidden="true" className="arena-index arena-index-bottom">
-            COMMUNITY <span>·</span> 02
-          </span>
         </div>
 
         <a className="scroll-cue" href="#experiences">
@@ -124,6 +142,27 @@ export function LandingPage() {
         </p>
       </section>
 
+      <section aria-labelledby="creator-clans-title" className="creator-clans-section">
+        <div className="section-title-row">
+          <div>
+            <p className="eyebrow">WARRIORS OF EVERY DISCIPLINE</p>
+            <h2 id="creator-clans-title">Meet the creators shaping the arena.</h2>
+          </div>
+          <Link className="text-action" to="/creators">Discover creators <ArrowRight size={16} /></Link>
+        </div>
+        <div className="creator-clan-list">
+          {demoCreators.slice(0, 4).map((creator, index) => (
+            <Link className="creator-clan" key={creator.id} to={'/creators/' + creator.id}>
+              <span aria-hidden="true" className="creator-clan-rank">0{index + 1}</span>
+              <span className="creator-clan-avatar" style={{ '--creator-color': creator.color } as CSSProperties}>{creator.initials}</span>
+              <span className="creator-clan-copy"><strong>{creator.name}</strong><small>{creator.category} · {creator.wins} victories</small></span>
+              <ArrowUpRight aria-hidden="true" size={16} />
+            </Link>
+          ))}
+        </div>
+        <p className="foundation-disclosure">Creator profiles and records shown here are sample content from the browser demo.</p>
+      </section>
+
       <section aria-labelledby="monthly-title" className="monthly-section">
         <div className="monthly-copy">
           <p className="eyebrow"><Trophy aria-hidden="true" size={15} /> THE MONTHLY CHAMPIONSHIP · DEMO</p>
@@ -152,6 +191,30 @@ export function LandingPage() {
           <li><span>03</span><strong>Celebrate</strong><small>Share results, recognize participation, and keep community Support Tokens distinct from creator Clash Coins.</small></li>
         </ol>
         <DemoBadge>DESIGNED TO BE EASY TO FOLLOW</DemoBadge>
+      </section>
+
+      <section aria-label="The arena experience" className="arena-pillars">
+        <article className="arena-pillar">
+          <span className="arena-pillar-index">01 · CREATOR STUDIO</span>
+          <Sparkles aria-hidden="true" size={18} />
+          <h2>Make the challenge yours.</h2>
+          <p>Shape a competition brief with creator-led challenge tools. AI suggestions are available only when the service is configured.</p>
+          <Link className="text-action" to="/creator/ai-director">Open Challenge Studio <ArrowRight size={15} /></Link>
+        </article>
+        <article className="arena-pillar">
+          <span className="arena-pillar-index">02 · THE COMMUNITY</span>
+          <UsersRound aria-hidden="true" size={18} />
+          <h2>Be part of the moment.</h2>
+          <p>Explore community activities and see how participation can bring a creator’s audience into a competition.</p>
+          <Link className="text-action" to="/community/activities">Explore activities <ArrowRight size={15} /></Link>
+        </article>
+        <article className="arena-pillar">
+          <span className="arena-pillar-index">03 · REWARDS</span>
+          <Trophy aria-hidden="true" size={18} />
+          <h2>Celebrate your style.</h2>
+          <p>Preview creator cosmetics and progression. Support Tokens and Clash Coins remain separate currencies.</p>
+          <Link className="text-action" to="/creator/rewards">See creator rewards <ArrowRight size={15} /></Link>
+        </article>
       </section>
 
       <section

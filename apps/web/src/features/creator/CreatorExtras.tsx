@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { ArrowRight, Check, Copy, MonitorPlay, Radio, ShieldCheck, Sparkles, Trophy } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowRight, Check, Copy, LoaderCircle, MonitorPlay, Radio, ShieldCheck, Sparkles, Trophy, Unlink } from 'lucide-react'
 import { Link } from 'react-router'
 import { ImmersiveScene } from '../../components/scenes/ImmersiveScene'
 import { DemoBadge } from '../../components/ui/DemoBadge'
@@ -11,6 +12,9 @@ import { StatBlock } from '../../components/ui/StatBlock'
 import { WeeklyChart } from '../../components/data/WeeklyChart'
 import { demoCosmetics } from '../../services/demoData'
 import { useDemoStore } from '../../stores/demoStore'
+import { useAuth } from '../auth/useAuth'
+import { isApiConfigured } from '../../config/runtime'
+import { disconnectTwitch, fetchTwitchConnection, fetchTwitchStream, getTwitchAuthorizationUrl } from '../../services/twitchApi'
 
 export function CreatorAnalyticsPage() {
   const battles = useDemoStore((state) => state.battles)
@@ -25,9 +29,77 @@ export function CreatorRewardsPage() {
 }
 
 export function CreatorSettingsPage({ section = 'profile' }: { section?: 'profile' | 'twitch' }) {
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    const result = new URL(window.location.href).searchParams.get('twitch')
+    if (result === 'connected') return 'Twitch account connected successfully.'
+    if (result === 'denied') return 'Twitch authorization was cancelled.'
+    if (result === 'error') return 'Twitch could not be connected. Check the app configuration and try again.'
+    return ''
+  })
   const twitch = section === 'twitch'
-  return <div className="workspace-page"><PageHeading eyebrow={twitch ? 'CREATOR WORKSPACE · TWITCH' : 'CREATOR WORKSPACE · SETTINGS'} title={twitch ? 'Prepare your channel connection.' : 'Set up your creator presence.'} description={twitch ? 'Review the Twitch integration surface designed for a future verified connection.' : 'Creator profile, workspace preferences, and integration readiness.'} action={<DemoBadge>NOT CONNECTED</DemoBadge>} /><DemoNotice>Twitch OAuth, Helix, EventSub, notifications, and profile synchronization are not connected in this frontend demo.</DemoNotice><div className="settings-layout"><Panel eyebrow="CREATOR PROFILE" title="Public profile preview"><div className="profile-settings-preview"><span className="creator-monogram">MV</span><div><strong>Mira Vale</strong><small>@miravale · Art & Creativity</small></div><DemoBadge>DEMO PROFILE</DemoBadge></div><label className="field-label">Display name<input className="text-input" defaultValue="Mira Vale" readOnly /></label><label className="field-label">Creator category<select className="text-input" defaultValue="art" disabled><option value="art">Art & Creativity · preview only</option></select></label><button className="button button-secondary" onClick={() => setNotice('Profile editing will be enabled with a verified account service.')} type="button">Profile editing preview</button></Panel><Panel eyebrow="ACCOUNT CONNECTION" title="Twitch status"><div className="connection-state"><span className="connection-icon"><Radio size={20} /></span><div><strong>Disconnected</strong><small>No Twitch account is linked in this demo.</small></div><span className="connection-dot" /></div><ul className="integration-checklist"><li><Check size={15} /> Channel identity slot prepared</li><li><Check size={15} /> Stream status presentation prepared</li><li><ShieldCheck size={15} /> OAuth authorization required for real access</li></ul><button className="button button-secondary" disabled onClick={() => setNotice('Twitch connection is not available in this frontend demo.')} type="button">Twitch connection unavailable</button><p className="panel-copy">No channel, stream, chat, or viewer data is fetched or simulated.</p></Panel></div>{notice && <InlineNotice>{notice}</InlineNotice>}<Panel eyebrow="CREATOR CONTROLS" title="Ready for future preferences"><div className="settings-summary-row"><span>Workspace mode</span><Link to="/community">Switch to community <ArrowRight size={15} /></Link></div><div className="settings-summary-row"><span>Overlay preview</span><Link to="/creator/overlay">Open OBS overlay <ArrowRight size={15} /></Link></div></Panel></div>
+  const auth = useAuth()
+  const queryClient = useQueryClient()
+  const accessToken = auth.session?.access_token
+  const enabled = auth.configured && Boolean(accessToken) && isApiConfigured()
+  const connection = useQuery({ queryKey: ['twitch-connection', auth.session?.user.id], queryFn: () => fetchTwitchConnection(accessToken!), enabled, retry: false })
+  const linked = connection.data?.connected === true
+  const stream = useQuery({ queryKey: ['twitch-stream', auth.session?.user.id], queryFn: () => fetchTwitchStream(accessToken!), enabled: enabled && linked, refetchInterval: 60_000, retry: false })
+  const connect = useMutation({ mutationFn: () => getTwitchAuthorizationUrl(accessToken!), onSuccess: ({ authorizationUrl }) => window.location.assign(authorizationUrl) })
+  const disconnect = useMutation({ mutationFn: () => disconnectTwitch(accessToken!), onSuccess: async ({ revoked }) => {
+    setNotice(revoked ? 'Twitch account disconnected.' : 'Twitch account disconnected; Twitch token revocation could not be confirmed.')
+    await queryClient.invalidateQueries({ queryKey: ['twitch-connection'] })
+    await queryClient.removeQueries({ queryKey: ['twitch-stream'] })
+  } })
+
+  useEffect(() => {
+    const current = new URL(window.location.href)
+    const result = current.searchParams.get('twitch')
+    if (!result) return
+    current.searchParams.delete('twitch')
+    window.history.replaceState(null, '', `${current.pathname}${current.search}${current.hash}`)
+    if (result === 'connected') void queryClient.invalidateQueries({ queryKey: ['twitch-connection'] })
+  }, [queryClient])
+
+  const confirmDisconnect = () => {
+    if (window.confirm('Disconnect your Twitch account from Creator Clash?')) disconnect.mutate()
+  }
+
+  return <div className="workspace-page">
+    <PageHeading eyebrow={twitch ? 'CREATOR WORKSPACE · TWITCH' : 'CREATOR WORKSPACE · SETTINGS'} title={twitch ? 'Connect your Twitch channel.' : 'Set up your creator presence.'} description={twitch ? 'Link your channel to show verified identity and live status.' : 'Creator profile, workspace preferences, and connected services.'} action={<span className="twitch-connect-badge">{linked ? 'CONNECTED' : 'TWITCH LINK'}</span>} />
+    <div className="settings-layout">
+      {!twitch && <Panel eyebrow="CREATOR PROFILE" title="Public profile preview"><div className="profile-settings-preview"><span className="creator-monogram">MV</span><div><strong>Mira Vale</strong><small>@miravale · Art & Creativity</small></div><DemoBadge>DEMO PROFILE</DemoBadge></div><label className="field-label">Display name<input className="text-input" defaultValue="Mira Vale" readOnly /></label><label className="field-label">Creator category<select className="text-input" defaultValue="art" disabled><option value="art">Art & Creativity · preview only</option></select></label><button className="button button-secondary" onClick={() => setNotice('Profile editing is not connected yet.')} type="button">Profile editing preview</button></Panel>}
+      <Panel eyebrow="ACCOUNT CONNECTION" title="Twitch status">
+        {!enabled && <InlineNotice>Sign in with a configured Creator Clash account and API to connect Twitch.</InlineNotice>}
+        {connection.isPending && enabled && <output aria-live="polite" className="panel-copy"><LoaderCircle aria-hidden="true" className="spin" size={16} /> Checking Twitch connection…</output>}
+        {connection.isError && <InlineNotice>{connection.error.message}</InlineNotice>}
+        {connection.isError && enabled && <button className="button button-secondary" disabled={connect.isPending} onClick={() => connect.mutate()} type="button">{connect.isPending ? 'Connecting…' : 'Reconnect Twitch'}</button>}
+        {connection.data?.connected ? <>
+          <div className="connection-state">
+            <img alt={`${connection.data.account.displayName} Twitch profile`} className="twitch-avatar" src={connection.data.account.profileImageUrl} />
+            <div><strong>{connection.data.account.displayName}</strong><small>@{connection.data.account.login}</small></div>
+            <span aria-label={stream.isPending ? 'Checking live status' : stream.isError ? 'Live status unavailable' : stream.data?.isLive ? 'Online' : 'Offline'} className={stream.data?.isLive ? 'connection-dot is-live' : 'connection-dot'} />
+          </div>
+          {stream.isPending && <output aria-live="polite" className="panel-copy">Checking live status…</output>}
+          {stream.isError && <InlineNotice>{stream.error.message}</InlineNotice>}
+          {stream.data?.isLive ? <div className="twitch-live-card">
+            <img alt="Live Twitch stream thumbnail" loading="lazy" src={stream.data.thumbnailUrl} />
+            <p className="eyebrow"><span className="live-indicator" /> LIVE · {stream.data.viewerCount.toLocaleString()} VIEWERS</p>
+            <h3>{stream.data.title}</h3><p className="panel-copy">{stream.data.category}</p>
+          </div> : stream.data && <p className="panel-copy">Your channel is offline. Live stream details will appear here when you go live.</p>}
+          <button className="button button-secondary" disabled={disconnect.isPending} onClick={confirmDisconnect} type="button"><Unlink size={15} />{disconnect.isPending ? 'Disconnecting…' : 'Disconnect Twitch'}</button>
+        </> : connection.data?.connected === false ? <>
+          <div className="connection-state"><span className="connection-icon"><Radio size={20} /></span><div><strong>Not connected</strong><small>Connect to show your verified channel identity and live status.</small></div><span className="connection-dot" /></div>
+          <button className="button button-primary" disabled={!enabled || connect.isPending} onClick={() => connect.mutate()} type="button">{connect.isPending ? <><LoaderCircle className="spin" size={15} /> Connecting…</> : 'Connect Twitch'}</button>
+        </> : null}
+        {connect.isError && <InlineNotice>{connect.error.message}</InlineNotice>}
+        {disconnect.isError && <InlineNotice>{disconnect.error.message}</InlineNotice>}
+        <ul className="integration-checklist"><li><ShieldCheck size={15} /> Twitch tokens stay on the Creator Clash server.</li><li><Check size={15} /> Read-only access to channel and stream status.</li></ul>
+      </Panel>
+    </div>
+    {notice && <InlineNotice>{notice}</InlineNotice>}
+    <Panel eyebrow="CREATOR CONTROLS" title="Workspace preferences"><div className="settings-summary-row"><span>Workspace mode</span><Link to="/community">Switch to community <ArrowRight size={15} /></Link></div><div className="settings-summary-row"><span>Overlay preview</span><Link to="/creator/overlay">Open OBS overlay <ArrowRight size={15} /></Link></div></Panel>
+  </div>
 }
 
 export function ObsOverlayPage() {

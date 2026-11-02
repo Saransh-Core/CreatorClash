@@ -26,7 +26,7 @@ Public, creator and community experiences share the dark token system while reta
 
 ## Samurai art and immersive scenes
 
-The original, generated samurai artwork in `apps/web/public/art/samurai-arena.png` is a signature background for the public hero only. A dark overlay preserves text contrast; the art should not be repeated behind cards. Existing optional Three.js / React Three Fiber scenes are code-split and have CSS fallbacks. Keep scenes decorative, low complexity, responsive to reduced motion, and independent from product state. Do not add further 3D dependencies without a specific product need and performance review.
+The original, generated samurai artwork in `apps/web/public/art/samurai-arena.png` is the signature visual for the public hero. A dark overlay preserves text contrast; the art should not be repeated behind cards. This is a static image, not an animated 3D character. The asset integration slot and requirements are documented in `apps/web/public/models/samurai/README.md`. Existing optional Three.js / React Three Fiber scenes are code-split and have CSS fallbacks. Keep scenes decorative, low complexity, responsive to reduced motion, and independent from product state. Do not add further 3D dependencies without a specific product need and performance review.
 
 ## Quality checks
 

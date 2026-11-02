@@ -9,7 +9,19 @@ export function saveChallengeOptions(client: SupabaseClient, battleId: string, p
 }
 
 export function getChallenges(client: SupabaseClient, battleId: string) {
-  return client.from('challenges').select('id,battle_id,created_by,prompt,status,generated_by_ai,selected_option_id,created_at,challenge_options(id,body,position,edited_by),challenge_approvals(creator_id,approved)').eq('battle_id', battleId).order('created_at', { ascending: false })
+  return client.from('challenges').select('id,battle_id,created_by,prompt,status,generated_by_ai,selected_option_id,voting_ends_at,created_at,challenge_options(id,title,description,rules,difficulty,estimated_duration_minutes,scoring_method,equipment_preparation,victory_conditions,body,position,edited_by),challenge_approvals(creator_id,approved)').eq('battle_id', battleId).order('created_at', { ascending: false })
+}
+
+export function getOpenChallenges(client: SupabaseClient) {
+  return client.from('challenges').select('id,battle_id,created_by,prompt,status,generated_by_ai,selected_option_id,voting_ends_at,created_at,challenge_options(id,title,description,rules,difficulty,estimated_duration_minutes,scoring_method,equipment_preparation,victory_conditions,body,position,edited_by),challenge_approvals(creator_id,approved)').eq('status', 'voting').gt('voting_ends_at', new Date().toISOString()).order('created_at', { ascending: false })
+}
+
+export function getChallengeVoteTotals(client: SupabaseClient, challengeId: string) {
+  return client.rpc('get_challenge_vote_totals', { p_challenge_id: challengeId })
+}
+
+export function chooseChallengeOption(client: SupabaseClient, challengeId: string, optionId: string) {
+  return client.rpc('choose_challenge_option', { p_challenge_id: challengeId, p_option_id: optionId })
 }
 
 export function voteForChallenge(client: SupabaseClient, challengeId: string, optionId: string) {

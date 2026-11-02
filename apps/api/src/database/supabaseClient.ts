@@ -21,3 +21,14 @@ export function createPublicClient(): SupabaseClient {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   })
 }
+
+/** Server-only client for narrowly scoped operations that require the service_role database role. */
+export function createServiceRoleClient(): SupabaseClient {
+  if (!env.supabaseUrl || !env.supabaseServiceRoleKey) {
+    throw new AppError('Supabase service operations are not configured for this environment.', 503, 'SUPABASE_SERVICE_ROLE_NOT_CONFIGURED')
+  }
+
+  return createClient(env.supabaseUrl, env.supabaseServiceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  })
+}

@@ -14,6 +14,7 @@ import { walletRouter } from './modules/wallet/wallet.routes.js'
 import { challengeRouter } from './modules/challenges/challenge.routes.js'
 import { matchmakingRouter } from './modules/matchmaking/matchmaking.routes.js'
 import { logger } from './shared/logger.js'
+import { twitchRouter } from './modules/twitch/twitch.routes.js'
 
 const requestLogger: RequestHandler = (request, response, next) => {
   const startedAt = performance.now()
@@ -57,6 +58,7 @@ export function createApp() {
   app.use('/api/wallet', walletRouter)
   app.use('/api/challenges', challengeRouter)
   app.use('/api/matchmaking', matchmakingRouter)
+  app.use('/api/twitch', twitchRouter)
   app.use(notFoundHandler)
   app.use(errorHandler)
 
