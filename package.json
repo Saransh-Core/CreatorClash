@@ -1,0 +1,15 @@
+{
+  "name": "creator-clash",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @creator-clash/web",
+    "build": "npm run build --workspace @creator-clash/web",
+    "lint": "npm run lint --workspace @creator-clash/web",
+    "typecheck": "npm run typecheck --workspace @creator-clash/web",
+    "preview": "npm run preview --workspace @creator-clash/web"
+  }
+}
